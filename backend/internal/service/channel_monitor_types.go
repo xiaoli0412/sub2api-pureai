@@ -45,6 +45,15 @@ type ChannelMonitor struct {
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 
+	// 日志驱动状态判定（Phase 1）
+	// AccountID / ChannelID 用于把监控与真实账号/路由渠道关联；
+	// 关联存在且最近有请求日志时，优先按日志计算状态，否则回退探测。
+	AccountID        *int64
+	ChannelID        *int64
+	UseLogsForStatus bool
+	// StatusSource 运行期填，标识当前展示状态来自 logs 还是 probe。
+	StatusSource string
+
 	// 请求自定义快照（来自模板拷贝 or 用户手填，运行时直接读取）
 	TemplateID       *int64            // 仅用于 UI 分组 + 一键应用，运行时不用
 	ExtraHeaders     map[string]string // 与 adapter 默认 headers 合并，用户优先
@@ -89,6 +98,10 @@ type ChannelMonitorCreateParams struct {
 	ExtraHeaders     map[string]string
 	BodyOverrideMode string
 	BodyOverride     map[string]any
+	// 日志驱动状态判定（Phase 1）
+	AccountID        *int64
+	ChannelID        *int64
+	UseLogsForStatus *bool // nil 时默认 true
 }
 
 // ChannelMonitorUpdateParams 更新参数（指针字段表示"未提供则不更新"）。
@@ -112,6 +125,10 @@ type ChannelMonitorUpdateParams struct {
 	ExtraHeaders     *map[string]string
 	BodyOverrideMode *string
 	BodyOverride     *map[string]any
+	// 日志驱动状态判定（Phase 1）：指针为 nil 表示不更新
+	AccountID        **int64 // nil=不更新；&nil=清空；&&id=设为 id
+	ChannelID        **int64
+	UseLogsForStatus *bool
 }
 
 // CheckResult 单个模型一次检测的结果。
@@ -223,4 +240,7 @@ type MonitorStatusSummary struct {
 	PrimaryLatencyMs *int
 	Availability7d   float64 // 0-100，无历史时为 0
 	ExtraModels      []ExtraModelStatus
+	// StatusSource 标识当前主模型状态来源：logs（真实请求日志）/ probe（探测）。
+	// 空字符串等价于 probe（兼容旧调用方）。
+	StatusSource string
 }

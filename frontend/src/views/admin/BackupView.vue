@@ -186,6 +186,9 @@
             <button type="button" class="btn btn-primary btn-sm" :disabled="creatingBackup" @click="createBackup">
               {{ creatingBackup ? t('admin.backup.operations.backing') : t('admin.backup.operations.createBackup') }}
             </button>
+            <button type="button" class="btn btn-secondary btn-sm" :disabled="creatingLocalBackup" @click="createLocalBackup">
+              {{ creatingLocalBackup ? t('admin.backup.operations.backing') : t('admin.backup.operations.createLocalBackup') }}
+            </button>
             <button type="button" class="btn btn-secondary btn-sm" :disabled="loadingBackups" @click="loadBackups">
               {{ loadingBackups ? t('common.loading') : t('common.refresh') }}
             </button>
@@ -231,7 +234,15 @@
                 <td class="py-3 text-xs">
                   <div class="flex flex-wrap gap-1">
                     <button
-                      v-if="record.status === 'completed'"
+                      v-if="record.status === 'completed' && record.storage_type === 'local'"
+                      type="button"
+                      class="btn btn-secondary btn-xs"
+                      @click="downloadLocalBackup(record.id)"
+                    >
+                      {{ t('admin.backup.actions.download') }}
+                    </button>
+                    <button
+                      v-else-if="record.status === 'completed'"
                       type="button"
                       class="btn btn-secondary btn-xs"
                       @click="downloadBackup(record.id)"
@@ -430,6 +441,7 @@ const savingSchedule = ref(false)
 const backups = ref<BackupRecord[]>([])
 const loadingBackups = ref(false)
 const creatingBackup = ref(false)
+const creatingLocalBackup = ref(false)
 const restoringId = ref('')
 const manualExpireDays = ref(14)
 
@@ -452,6 +464,7 @@ function startPolling(backupId: string) {
     if (count++ >= MAX_POLL_COUNT) {
       stopPolling()
       creatingBackup.value = false
+      creatingLocalBackup.value = false
       appStore.showWarning(t('admin.backup.operations.backupRunning'))
       return
     }
@@ -461,6 +474,7 @@ function startPolling(backupId: string) {
       if (record.status === 'completed' || record.status === 'failed') {
         stopPolling()
         creatingBackup.value = false
+        creatingLocalBackup.value = false
         if (record.status === 'completed') {
           appStore.showSuccess(t('admin.backup.operations.backupCreated'))
         } else {
@@ -655,8 +669,8 @@ async function loadSchedule() {
     scheduleForm.value = {
       enabled: cfg.enabled,
       cron_expr: cfg.cron_expr || '0 2 * * *',
-      retain_days: cfg.retain_days || 14,
-      retain_count: cfg.retain_count || 10,
+	      retain_days: cfg.retain_days ?? 14,
+	      retain_count: cfg.retain_count ?? 10,
     }
   } catch (error) {
     appStore.showError((error as { message?: string })?.message || t('errors.networkError'))
@@ -721,6 +735,49 @@ async function downloadBackup(id: string) {
     link.href = result.url
     link.rel = 'noopener'
     link.click()
+  } catch (error) {
+    if (isStepUpCancelled(error)) return
+    if (reportStepUpBlocked(error)) return
+    appStore.showError((error as { message?: string })?.message || t('errors.networkError'))
+  }
+}
+
+async function createLocalBackup() {
+  creatingLocalBackup.value = true
+  try {
+    const record = await backupStepUp.run(() =>
+      adminAPI.backup.createLocalBackup({ expire_days: manualExpireDays.value })
+    )
+    backups.value.unshift(record)
+    startPolling(record.id)
+  } catch (error: any) {
+    if (isStepUpCancelled(error)) {
+      creatingLocalBackup.value = false
+      return
+    }
+    if (reportStepUpBlocked(error)) {
+      creatingLocalBackup.value = false
+      return
+    }
+    if (error?.response?.status === 409) {
+      appStore.showWarning(t('admin.backup.operations.alreadyInProgress'))
+    } else {
+      appStore.showError(error?.message || t('errors.networkError'))
+    }
+    creatingLocalBackup.value = false
+  }
+}
+
+async function downloadLocalBackup(id: string) {
+  try {
+    await backupStepUp.run(async () => {
+      // 本地备份直接走同源下载链接（后端流式返回 gzip），axios 不方便触发浏览器下载，
+      // 这里仅借 step-up 通过校验，随后用 anchor 触发导航下载。
+      const link = document.createElement('a')
+      link.href = adminAPI.backup.buildLocalDownloadURL(id)
+      link.rel = 'noopener'
+      link.click()
+    })
   } catch (error) {
     if (isStepUpCancelled(error)) return
     if (reportStepUpBlocked(error)) return
@@ -796,6 +853,7 @@ onMounted(async () => {
   const runningBackup = backups.value.find(r => r.status === 'running')
   if (runningBackup) {
     creatingBackup.value = true
+    creatingLocalBackup.value = runningBackup.storage_type === 'local'
     startPolling(runningBackup.id)
   }
   const restoringBackup = backups.value.find(r => r.restore_status === 'running')

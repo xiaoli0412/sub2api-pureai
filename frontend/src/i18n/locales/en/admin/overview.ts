@@ -131,6 +131,7 @@ export default {
         title: 'Backup Records',
         description: 'Create manual backups and manage existing backup records',
         createBackup: 'Create Backup',
+        createLocalBackup: 'Create Local Backup',
         backing: 'Backing up...',
         backupCreated: 'Backup created successfully',
         expireDays: 'Expire Days',

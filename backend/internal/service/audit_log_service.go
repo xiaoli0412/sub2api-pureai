@@ -13,6 +13,8 @@ const (
 	auditLogQueueCapacity = 4096
 	auditLogBatchSize     = 100
 	auditLogFlushInterval = time.Second
+	auditLogFlushRetries  = 3
+	auditLogRetryBackoff  = 200 * time.Millisecond
 
 	auditRetentionCheckInterval = 24 * time.Hour
 	auditRetentionStartupDelay  = 5 * time.Minute
@@ -35,6 +37,14 @@ type AuditLogService struct {
 	droppedCount uint64
 	writeFailed  uint64
 	writtenCount uint64
+}
+
+type AuditLogHealth struct {
+	QueueDepth    int64  `json:"queue_depth"`
+	QueueCapacity int64  `json:"queue_capacity"`
+	DroppedCount  uint64 `json:"dropped_count"`
+	WriteFailed   uint64 `json:"write_failed"`
+	WrittenCount  uint64 `json:"written_count"`
 }
 
 func NewAuditLogService(repo AuditLogRepository, settingService *SettingService) *AuditLogService {
@@ -67,6 +77,19 @@ func (s *AuditLogService) Stop() {
 	s.wg.Wait()
 }
 
+func (s *AuditLogService) Health() AuditLogHealth {
+	if s == nil {
+		return AuditLogHealth{}
+	}
+	return AuditLogHealth{
+		QueueDepth:    int64(len(s.queue)),
+		QueueCapacity: int64(cap(s.queue)),
+		DroppedCount:  atomic.LoadUint64(&s.droppedCount),
+		WriteFailed:   atomic.LoadUint64(&s.writeFailed),
+		WrittenCount:  atomic.LoadUint64(&s.writtenCount),
+	}
+}
+
 // Record 非阻塞入队一条审计记录；队列打满时丢弃并计数（管理面流量下几乎不可能发生）。
 func (s *AuditLogService) Record(entry *AuditLog) {
 	if s == nil || entry == nil {
@@ -85,6 +108,18 @@ func (s *AuditLogService) Record(entry *AuditLog) {
 	default:
 		atomic.AddUint64(&s.droppedCount, 1)
 	}
+}
+
+// RecordCritical synchronously persists a security-sensitive audit intent. It
+// fails closed when the audit store cannot accept the record.
+func (s *AuditLogService) RecordCritical(ctx context.Context, entry *AuditLog) error {
+	if s == nil || s.repo == nil || entry == nil {
+		return fmt.Errorf("critical audit service is not configured")
+	}
+	if entry.CreatedAt.IsZero() {
+		entry.CreatedAt = time.Now().UTC()
+	}
+	return s.repo.Insert(ctx, entry)
 }
 
 // List 分页查询审计日志。
@@ -127,6 +162,35 @@ func (s *AuditLogService) ClearAll(ctx context.Context, trace *AuditLog) (int64,
 	return deleted, nil
 }
 
+func (s *AuditLogService) flushBatchWithRetry(pending []*AuditLog) (int64, error) {
+	var inserted int64
+	var err error
+	for attempt := 0; attempt < auditLogFlushRetries; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		inserted, err = s.repo.BatchInsert(ctx, pending)
+		cancel()
+		if err == nil {
+			return inserted, nil
+		}
+		if attempt+1 == auditLogFlushRetries {
+			break
+		}
+		timer := time.NewTimer(auditLogRetryBackoff * time.Duration(attempt+1))
+		select {
+		case <-s.ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return inserted, s.ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return inserted, err
+}
+
 func (s *AuditLogService) runWriter() {
 	defer s.wg.Done()
 
@@ -138,17 +202,17 @@ func (s *AuditLogService) runWriter() {
 		if len(batch) == 0 {
 			return
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		inserted, err := s.repo.BatchInsert(ctx, batch)
-		cancel()
-		if err != nil {
-			atomic.AddUint64(&s.writeFailed, uint64(len(batch)))
-			_, _ = fmt.Fprintf(os.Stderr, "time=%s level=WARN msg=\"audit log flush failed\" err=%v batch=%d\n",
-				time.Now().Format(time.RFC3339Nano), err, len(batch))
-		} else {
+		pending := batch
+		batch = nil
+		inserted, err := s.flushBatchWithRetry(pending)
+		if err == nil {
 			atomic.AddUint64(&s.writtenCount, uint64(inserted))
+			return
 		}
-		batch = batch[:0]
+		atomic.AddUint64(&s.writeFailed, uint64(len(pending)))
+		atomic.AddUint64(&s.droppedCount, uint64(len(pending)))
+		_, _ = fmt.Fprintf(os.Stderr, "time=%s level=WARN msg=\"audit log flush failed after retries\" err=%v batch=%d retries=%d\n",
+			time.Now().Format(time.RFC3339Nano), err, len(pending), auditLogFlushRetries)
 	}
 
 	for {

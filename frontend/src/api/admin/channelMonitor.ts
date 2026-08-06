@@ -47,6 +47,12 @@ export interface ChannelMonitor {
   extra_headers: Record<string, string>
   body_override_mode: BodyOverrideMode
   body_override: Record<string, unknown> | null
+  /** 日志驱动状态判定（Phase 1） */
+  account_id: number | null
+  channel_id: number | null
+  use_logs_for_status: boolean
+  /** 当前展示状态来源：logs / probe */
+  status_source: 'logs' | 'probe' | ''
 }
 
 export interface ExtraModelStatus {
@@ -87,11 +93,19 @@ export interface CreateParams {
   extra_headers?: Record<string, string>
   body_override_mode?: BodyOverrideMode
   body_override?: Record<string, unknown> | null
+  /** 日志驱动状态判定（Phase 1） */
+  account_id?: number | null
+  channel_id?: number | null
+  use_logs_for_status?: boolean
 }
 
 // Update request: api_key 空串 = 不修改；clear_template=true 时把 template_id 置空
 export type UpdateParams = Partial<CreateParams> & {
   clear_template?: boolean
+  /** true 时把 account_id 置空 */
+  clear_account_id?: boolean
+  /** true 时把 channel_id 置空 */
+  clear_channel_id?: boolean
 }
 
 export interface CheckResult {

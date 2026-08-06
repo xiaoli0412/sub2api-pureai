@@ -33,10 +33,19 @@ export interface BackupRecord {
   restore_status?: string
   restore_error?: string
   restored_at?: string
+  /** 存储类型：s3 / local；空串等价于 s3 */
+  storage_type?: 's3' | 'local' | ''
+  /** 本地备份文件绝对路径（仅 storage_type=local） */
+  local_path?: string
 }
 
 export interface CreateBackupRequest {
   expire_days?: number
+}
+
+export interface CreateLocalBackupRequest {
+  expire_days?: number
+  local_dir?: string
 }
 
 export interface TestS3Response {
@@ -123,6 +132,12 @@ export async function createBackup(req?: CreateBackupRequest): Promise<BackupRec
   return data
 }
 
+// 本地备份：pg_dump -> gzip -> 本地磁盘，无需配置 S3。
+export async function createLocalBackup(req?: CreateLocalBackupRequest): Promise<BackupRecord> {
+  const { data } = await apiClient.post<BackupRecord>('/admin/backups/local', req || {})
+  return data
+}
+
 export async function listBackups(): Promise<{ items: BackupRecord[] }> {
   const { data } = await apiClient.get<{ items: BackupRecord[] }>('/admin/backups')
   return data
@@ -142,6 +157,14 @@ export async function getDownloadURL(id: string): Promise<{ url: string }> {
   return data
 }
 
+/**
+ * 生成本地备份下载链接（直接走浏览器同源下载，带 admin cookie/JWT）。
+ * 后端 /admin/backups/:id/download 会流式返回 gzip 文件。
+ */
+export function buildLocalDownloadURL(id: string): string {
+  return `/api/v1/admin/backups/${id}/download`
+}
+
 // Restore
 export async function restoreBackup(id: string, password: string): Promise<BackupRecord> {
   const { data } = await apiClient.post<BackupRecord>(`/admin/backups/${id}/restore`, { password })
@@ -158,10 +181,12 @@ export const backupAPI = {
   getSchedule,
   updateSchedule,
   createBackup,
+  createLocalBackup,
   listBackups,
   getBackup,
   deleteBackup,
   getDownloadURL,
+  buildLocalDownloadURL,
   restoreBackup,
 }
 

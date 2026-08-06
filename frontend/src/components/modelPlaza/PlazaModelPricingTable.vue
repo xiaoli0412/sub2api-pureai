@@ -196,6 +196,57 @@
         </tr>
       </tbody>
     </table>
+
+    <div class="plaza-mobile-models lg:hidden">
+      <article
+        v-for="m in sortedModels"
+        :key="`mobile-${m.name}`"
+        class="border-t border-gray-100 px-4 py-3.5 first:border-t-0 dark:border-dark-700/70"
+      >
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-1.5">
+              <span class="break-words text-sm font-semibold text-gray-900 dark:text-white">{{ m.name }}</span>
+              <span
+                v-if="billingMode(m) !== BILLING_MODE_TOKEN"
+                class="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-dark-700 dark:text-dark-300"
+              >
+                {{ billingModeLabel(m) }}
+              </span>
+            </div>
+            <span class="mt-1 block text-[11px] text-gray-400 dark:text-dark-500">
+              {{ t('modelPlaza.table.officialPrice') }}: {{ official(m.official_pricing?.output_price) }}
+            </span>
+          </div>
+          <span class="shrink-0 rounded-md bg-gray-100 px-2 py-1 font-mono text-xs font-semibold text-gray-700 dark:bg-dark-700 dark:text-dark-200">
+            {{ requestRate(m) }}x
+          </span>
+        </div>
+
+        <div v-if="billingMode(m) === BILLING_MODE_TOKEN" class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div class="mobile-price-cell">
+            <span>{{ t('modelPlaza.table.input') }}</span>
+            <strong>{{ tokenDisplay(m, 'input_price') }}</strong>
+          </div>
+          <div class="mobile-price-cell">
+            <span>{{ t('modelPlaza.table.output') }}</span>
+            <strong>{{ tokenDisplay(m, 'output_price') }}</strong>
+          </div>
+          <div class="mobile-price-cell">
+            <span>{{ t('modelPlaza.table.cacheWrite') }}</span>
+            <strong>{{ paidPerMillion(m.pricing?.cache_write_price) }}</strong>
+          </div>
+          <div class="mobile-price-cell">
+            <span>{{ t('modelPlaza.table.cacheRead') }}</span>
+            <strong>{{ paidPerMillion(m.pricing?.cache_read_price) }}</strong>
+          </div>
+        </div>
+        <div v-else class="mt-3 mobile-price-cell">
+          <span>{{ t('modelPlaza.table.paidPrice') }}</span>
+          <strong>{{ requestDisplay(m) }} {{ perUnitSuffix(m) }}</strong>
+        </div>
+      </article>
+    </div>
   </div>
 </template>
 
@@ -305,6 +356,22 @@ function perUnitSuffix(m: PlazaModel): string {
     : t('modelPlaza.table.perUnitRequest')
 }
 
+function tokenDisplay(m: PlazaModel, key: 'input_price' | 'output_price'): string {
+  const intervals = tokenIntervals(m)
+  if (intervals.length > 0) {
+    return intervals.map((iv) => `${tierLabel(iv)} ${paidPerMillion(iv[key])}`).join(' · ')
+  }
+  return paidPerMillion(m.pricing?.[key])
+}
+
+function requestDisplay(m: PlazaModel): string {
+  const intervals = requestIntervals(m)
+  if (intervals.length > 0) {
+    return intervals.map((iv) => `${tierLabel(iv)} ${paidRequestPrice(m, iv.per_request_price)}`).join(' · ')
+  }
+  return paidRequestPrice(m, m.pricing?.per_request_price)
+}
+
 function hasCachePricing(m: PlazaModel): boolean {
   return m.pricing?.cache_write_price != null || m.pricing?.cache_read_price != null
 }
@@ -371,7 +438,6 @@ tbody tr:hover .pz-cell {
 }
 
 .pz-title {
-  /* color-mix 不可用的老浏览器回退为平台原色 */
   color: var(--plaza-accent);
   color: var(--pz-title);
   border-color: color-mix(in srgb, var(--pz-title) 30%, transparent);
@@ -379,5 +445,51 @@ tbody tr:hover .pz-cell {
 
 .pz-unit {
   color: color-mix(in srgb, var(--pz-title) 62%, transparent);
+}
+
+.plaza-mobile-models {
+  display: none;
+}
+
+.mobile-price-cell {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.25rem;
+  border-radius: 0.5rem;
+  background: var(--pz-bg);
+  padding: 0.55rem 0.65rem;
+}
+
+.mobile-price-cell span {
+  color: rgb(107 114 128);
+  font-size: 0.65rem;
+  line-height: 1.2;
+}
+
+.mobile-price-cell strong {
+  overflow-wrap: anywhere;
+  color: rgb(17 24 39);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.dark .mobile-price-cell span {
+  color: rgb(156 163 175);
+}
+
+.dark .mobile-price-cell strong {
+  color: rgb(243 244 246);
+}
+
+@media (max-width: 1023px) {
+  .plaza-pricing-table > table {
+    display: none;
+  }
+
+  .plaza-mobile-models {
+    display: block;
+  }
 }
 </style>

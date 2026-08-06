@@ -24,8 +24,27 @@ func NewAuditLogRepository(db *sql.DB) service.AuditLogRepository {
 }
 
 const auditLogInsertColumns = `created_at, actor_user_id, actor_email, actor_role, auth_method,
-credential_masked, action, method, path, request_id, client_ip, user_agent,
-request_body, status_code, latency_ms, extra`
+	credential_masked, action, method, path, request_id, client_ip, user_agent,
+	request_body, status_code, latency_ms, extra`
+
+// auditLogExecutor is implemented by both *sql.DB and *sql.Tx, allowing
+// security-sensitive callers to persist an audit row in their own transaction.
+type auditLogExecutor interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func insertAuditLog(ctx context.Context, execer auditLogExecutor, log *service.AuditLog) error {
+	if execer == nil {
+		return fmt.Errorf("nil audit log executor")
+	}
+	if log == nil {
+		return fmt.Errorf("nil audit log")
+	}
+	query := `INSERT INTO audit_logs (` + auditLogInsertColumns + `)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`
+	_, err := execer.ExecContext(ctx, query, auditLogInsertValues(log)...)
+	return err
+}
 
 func auditLogInsertValues(log *service.AuditLog) []any {
 	createdAt := log.CreatedAt
@@ -113,13 +132,7 @@ func (r *auditLogRepository) Insert(ctx context.Context, log *service.AuditLog) 
 	if r == nil || r.db == nil {
 		return fmt.Errorf("nil audit log repository")
 	}
-	if log == nil {
-		return fmt.Errorf("nil audit log")
-	}
-	query := `INSERT INTO audit_logs (` + auditLogInsertColumns + `)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`
-	_, err := r.db.ExecContext(ctx, query, auditLogInsertValues(log)...)
-	return err
+	return insertAuditLog(ctx, r.db, log)
 }
 
 func buildAuditLogsWhere(filter *service.AuditLogFilter) (string, []any) {

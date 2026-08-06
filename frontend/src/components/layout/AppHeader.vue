@@ -165,7 +165,7 @@
 
                 <a
                   v-if="authStore.isAdmin"
-                  href="https://github.com/Wei-Shaw/sub2api"
+                  href="https://github.com/xiaoli0412/sub2api-pureai"
                   target="_blank"
                   rel="noopener noreferrer"
                   @click="closeDropdown"

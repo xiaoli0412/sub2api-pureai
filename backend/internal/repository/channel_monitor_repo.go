@@ -50,6 +50,8 @@ func (r *channelMonitorRepository) Create(ctx context.Context, m *service.Channe
 		SetIntervalSeconds(m.IntervalSeconds).
 		SetJitterSeconds(m.JitterSeconds).
 		SetCreatedBy(m.CreatedBy).
+		SetUseLogsForStatus(m.UseLogsForStatus).
+		SetStatusSource(m.StatusSource).
 		SetExtraHeaders(channelMonitorHeadersForPersistence(m)).
 		SetBodyOverrideMode(defaultBodyModeRepo(m.BodyOverrideMode))
 	if m.TemplateID != nil {
@@ -57,6 +59,12 @@ func (r *channelMonitorRepository) Create(ctx context.Context, m *service.Channe
 	}
 	if m.BodyOverride != nil {
 		builder = builder.SetBodyOverride(m.BodyOverride)
+	}
+	if m.AccountID != nil {
+		builder = builder.SetAccountID(*m.AccountID)
+	}
+	if m.ChannelID != nil {
+		builder = builder.SetChannelID(*m.ChannelID)
 	}
 
 	created, err := builder.Save(ctx)
@@ -117,6 +125,8 @@ func (r *channelMonitorRepository) Update(ctx context.Context, m *service.Channe
 		SetEnabled(m.Enabled).
 		SetIntervalSeconds(m.IntervalSeconds).
 		SetJitterSeconds(m.JitterSeconds).
+		SetUseLogsForStatus(m.UseLogsForStatus).
+		SetStatusSource(m.StatusSource).
 		SetExtraHeaders(channelMonitorHeadersForPersistence(m)).
 		SetBodyOverrideMode(defaultBodyModeRepo(m.BodyOverrideMode))
 	if m.TemplateID != nil {
@@ -128,6 +138,17 @@ func (r *channelMonitorRepository) Update(ctx context.Context, m *service.Channe
 		updater = updater.SetBodyOverride(m.BodyOverride)
 	} else {
 		updater = updater.ClearBodyOverride()
+	}
+	// account_id / channel_id 三态：nil 清空，非 nil 覆盖
+	if m.AccountID != nil {
+		updater = updater.SetAccountID(*m.AccountID)
+	} else {
+		updater = updater.ClearAccountID()
+	}
+	if m.ChannelID != nil {
+		updater = updater.SetChannelID(*m.ChannelID)
+	} else {
+		updater = updater.ClearChannelID()
 	}
 
 	updated, err := updater.Save(ctx)
@@ -758,6 +779,10 @@ func entToServiceMonitor(row *dbent.ChannelMonitor) *service.ChannelMonitor {
 		BodyOverrideMode:     row.BodyOverrideMode,
 		BodyOverride:         row.BodyOverride,
 		DuplicateOperationID: duplicateOperationID,
+		AccountID:            row.AccountID,
+		ChannelID:            row.ChannelID,
+		UseLogsForStatus:     row.UseLogsForStatus,
+		StatusSource:         defaultStatusSourceRepo(row.StatusSource),
 	}
 	if row.TemplateID != nil {
 		id := *row.TemplateID
@@ -805,6 +830,14 @@ func defaultAPIModeRepo(apiMode string) string {
 		return "chat_completions"
 	}
 	return apiMode
+}
+
+// defaultStatusSourceRepo 空串归一为 probe，兼容迁移后未填值的旧行。
+func defaultStatusSourceRepo(source string) string {
+	if source == "" {
+		return "probe"
+	}
+	return source
 }
 
 func emptySliceIfNil(in []string) []string {

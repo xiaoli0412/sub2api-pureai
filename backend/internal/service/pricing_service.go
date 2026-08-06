@@ -1092,6 +1092,25 @@ func (s *PricingService) ListModelNamesByProvider(provider string) []string {
 	return names
 }
 
+// ListModelPricing returns a stable, copied snapshot of the public pricing catalog.
+// The returned map and pricing values can be safely serialized or modified by callers.
+func (s *PricingService) ListModelPricing() map[string]LiteLLMModelPricing {
+	if s == nil {
+		return map[string]LiteLLMModelPricing{}
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make(map[string]LiteLLMModelPricing, len(s.pricingData))
+	for name, pricing := range s.pricingData {
+		if pricing == nil {
+			continue
+		}
+		result[name] = *pricing
+	}
+	return result
+}
+
 // isNumeric 检查字符串是否为纯数字
 func isNumeric(s string) bool {
 	for _, c := range s {

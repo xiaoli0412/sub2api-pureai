@@ -78,6 +78,44 @@ type UsageLogRepository interface {
 	GetAccountStatsAggregated(ctx context.Context, accountID int64, startTime, endTime time.Time) (*usagestats.UsageStats, error)
 	GetModelStatsAggregated(ctx context.Context, modelName string, startTime, endTime time.Time) (*usagestats.UsageStats, error)
 	GetDailyStatsAggregated(ctx context.Context, userID int64, startTime, endTime time.Time) ([]map[string]any, error)
+
+	// GetChannelMonitorLogStatusBatch 按监控实例批量聚合最近 window 内的请求日志。
+	// ChannelID 为空时保持旧的账号级聚合行为；有值时只统计该渠道。
+	GetChannelMonitorLogStatusBatch(ctx context.Context, targets []ChannelMonitorLogTarget, window time.Duration) (map[int64]map[string]*ChannelMonitorLogStatus, error)
+}
+
+// ChannelMonitorLogStatus 单个 (account, model) 在窗口内的请求日志聚合结果。
+// 用于把渠道监控状态从"探测"切换为"真实请求日志"。
+type ChannelMonitorLogStatus struct {
+	AccountID       int64
+	Model           string
+	TotalRequests   int
+	SuccessRequests int // actual_cost > 0 视为成功
+	AvgLatencyMs    *int
+	LastRequestAt   *time.Time
+}
+
+// ChannelMonitorLogTarget 描述一个监控实例需要读取的日志范围。
+// MonitorID 用作返回 map 的键，避免同一账号下多个渠道共享聚合结果。
+type ChannelMonitorLogTarget struct {
+	MonitorID int64
+	AccountID int64
+	ChannelID *int64
+	Models    []string
+}
+
+// SuccessRate 返回 0-100 的成功率；无请求时返回 0。
+func (s *ChannelMonitorLogStatus) SuccessRate() float64 {
+	if s == nil || s.TotalRequests == 0 {
+		return 0
+	}
+	return float64(s.SuccessRequests) * 100.0 / float64(s.TotalRequests)
+}
+
+// channelMonitorLogStatusReader 是 UsageLogRepository 的可选扩展接口，
+// ChannelMonitorService 通过它读取日志聚合，未注入时回退探测。
+type channelMonitorLogStatusReader interface {
+	GetChannelMonitorLogStatusBatch(ctx context.Context, targets []ChannelMonitorLogTarget, window time.Duration) (map[int64]map[string]*ChannelMonitorLogStatus, error)
 }
 
 type accountWindowStatsBatchReader interface {

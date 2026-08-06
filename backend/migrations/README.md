@@ -72,11 +72,14 @@ Why?
 
 3. **Test locally**
    ```bash
-   # Apply migration
-   make migrate-up
+   # Start the local Compose stack; AUTO_SETUP applies pending migrations.
+   docker compose -f deploy/docker-compose.local.yml up -d
 
-   # Test rollback
-   make migrate-down
+   # Check migration status through the host-published PostgreSQL port.
+   export PGPASSWORD="$POSTGRES_PASSWORD"
+   psql -h 127.0.0.1 -p "${POSTGRES_HOST_PORT:-5433}" \
+     -U "${POSTGRES_USER:-sub2api}" -d "${POSTGRES_DB:-sub2api}" \
+     -c "SELECT filename, applied_at FROM schema_migrations ORDER BY applied_at DESC;"
    ```
 
 4. **Commit and deploy**
@@ -111,14 +114,57 @@ git checkout <commit-hash> -- migrations/017_add_gemini_tier_id.sql
 touch migrations/018_your_new_change.sql
 ```
 
+## Running In Deployments
+
+The application migration runner is embedded in the server binary. For Docker
+Compose deployments, `AUTO_SETUP=true` is the supported startup path: on the
+first start it reads the `DATABASE_*` settings, connects to PostgreSQL, applies
+embedded migrations, and records checksums in `schema_migrations`. It also
+performs setup tasks such as creating the initial admin account.
+
+`AUTO_MIGRATE` is not currently read by the application and must not be used as
+a migration switch. `SETUP_MIGRATION_TIMEOUT_SECONDS` controls the setup
+migration timeout; `0` uses the built-in default.
+
+For `deploy/docker-compose.local.yml`, the application connects to
+`postgres:5432` over the private Compose network. Host-side `pg_dump`/`psql`
+commands use `127.0.0.1:5433` by default (`POSTGRES_HOST_PORT` can change that
+loopback port). A host cannot resolve the Compose service name `postgres`, and a
+container cannot use the host's `127.0.0.1` for the database.
+
+The repository migration runner is forward-only. A database restore is a
+recovery operation, not a rollback mechanism for an already-applied migration.
+Keep a verified backup before upgrades and retain the previous image until the
+new schema has been validated.
+
+### Bundle Export and Import
+
+From a host with PostgreSQL client tools installed:
+
+```bash
+# Configure deploy/.env and set a real password locally; do not commit it.
+export PGHOST=127.0.0.1 PGPORT=5433 PGUSER=sub2api PGDATABASE=sub2api
+export PGPASSWORD='your-local-password'
+./scripts/migrate.sh export ./backups
+./scripts/migrate.sh import ./backups/migration-bundle-<timestamp>.tar.gz
+```
+
+On Windows, use `./scripts/migrate.ps1` with the same `PG*` variables. The
+PowerShell script uses .NET gzip streams, so `gzip` and `gunzip` are not
+required. Both scripts validate archive member paths before extraction and stop
+`psql` at the first error with `ON_ERROR_STOP=1` and a single transaction.
+
+For a script run inside the application container, set `PGHOST=postgres` and
+`PGPORT=5432` explicitly. The scripts require PostgreSQL client tools and a
+non-interactive password source (`PGPASSWORD` or `PGPASSFILE`).
+
 ## Migration System Details
 
 - **Checksum Algorithm**: SHA256 of trimmed file content
 - **Tracking Table**: `schema_migrations` (filename, checksum, applied_at)
 - **Runner**: `internal/repository/migrations_runner.go`
-- **Auto-run**: Migrations run automatically on service startup
+- **Auto-run**: Enabled by the application's `AUTO_SETUP=true` startup path; `AUTO_MIGRATE` is not supported
 
-## Best Practices
 
 1. **Keep migrations small and focused**
    - One logical change per migration
@@ -137,9 +183,9 @@ touch migrations/018_your_new_change.sql
    - Document any special considerations
 
 5. **Test in development first**
-   - Apply migration locally
-   - Verify data integrity
-   - Test rollback
+   - Start the deployment and let `AUTO_SETUP` apply pending migrations.
+   - Verify data integrity and inspect `schema_migrations`.
+   - For rollback or disaster recovery, restore a verified database backup; do not expect an image rollback to reverse schema changes.
 
 ## Example Migration
 
@@ -164,12 +210,16 @@ See "If You Accidentally Modified an Applied Migration" above.
 
 ### Migration Failed
 ```bash
-# Check migration status
-psql -d sub2api -c "SELECT * FROM schema_migrations ORDER BY applied_at DESC;"
-
-# Manually rollback if needed (use with caution)
-# Better to fix the migration and create a new one
+# Check migration status through the host-published PostgreSQL port.
+export PGPASSWORD="$POSTGRES_PASSWORD"
+psql -h 127.0.0.1 -p "${POSTGRES_HOST_PORT:-5433}" \
+  -U "${POSTGRES_USER:-sub2api}" -d "${POSTGRES_DB:-sub2api}" \
+  -c "SELECT filename, applied_at FROM schema_migrations ORDER BY applied_at DESC;"
 ```
+
+A failed migration should be fixed by creating a new forward migration or
+restoring a verified backup. Do not mark a migration as applied without
+reviewing the resulting schema.
 
 ### Need to Skip a Migration (Emergency Only)
 ```sql

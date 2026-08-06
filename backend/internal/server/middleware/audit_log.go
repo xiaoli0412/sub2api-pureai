@@ -118,6 +118,12 @@ var auditSensitiveReads = map[string]string{
 	"GET /api/v1/admin/groups/:id/api-keys":       "admin.groups.api_keys.read",
 	"GET /api/v1/admin/backups/s3-config":         "admin.backups.s3_config.read",
 	"GET /api/v1/admin/data-management/s3/config": "admin.data_management.s3_config.read",
+	"GET /api/v1/bot/costs":                       "astrbot.costs.read",
+	"GET /api/v1/bot/profit":                      "astrbot.profit.read",
+	"GET /api/v1/bot/consumption":                 "astrbot.consumption.read",
+	"GET /api/v1/bot/channels/status":             "astrbot.channels.status.read",
+	"GET /api/v1/bot/accounts/status":             "astrbot.accounts.status.read",
+	"GET /api/v1/bot/models/prices":               "astrbot.models.prices.read",
 }
 
 // auditActionOverrides 变更类请求的动作名精确映射（未命中时自动推导）。

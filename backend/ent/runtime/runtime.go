@@ -705,12 +705,22 @@ func init() {
 	channelmonitor.DefaultJitterSeconds = channelmonitorDescJitterSeconds.Default.(int)
 	// channelmonitor.JitterSecondsValidator is a validator for the "jitter_seconds" field. It is called by the builders before save.
 	channelmonitor.JitterSecondsValidator = channelmonitorDescJitterSeconds.Validators[0].(func(int) error)
+	// channelmonitorDescUseLogsForStatus is the schema descriptor for use_logs_for_status field.
+	channelmonitorDescUseLogsForStatus := channelmonitorFields[15].Descriptor()
+	// channelmonitor.DefaultUseLogsForStatus holds the default value on creation for the use_logs_for_status field.
+	channelmonitor.DefaultUseLogsForStatus = channelmonitorDescUseLogsForStatus.Default.(bool)
+	// channelmonitorDescStatusSource is the schema descriptor for status_source field.
+	channelmonitorDescStatusSource := channelmonitorFields[16].Descriptor()
+	// channelmonitor.DefaultStatusSource holds the default value on creation for the status_source field.
+	channelmonitor.DefaultStatusSource = channelmonitorDescStatusSource.Default.(string)
+	// channelmonitor.StatusSourceValidator is a validator for the "status_source" field. It is called by the builders before save.
+	channelmonitor.StatusSourceValidator = channelmonitorDescStatusSource.Validators[0].(func(string) error)
 	// channelmonitorDescExtraHeaders is the schema descriptor for extra_headers field.
-	channelmonitorDescExtraHeaders := channelmonitorFields[14].Descriptor()
+	channelmonitorDescExtraHeaders := channelmonitorFields[18].Descriptor()
 	// channelmonitor.DefaultExtraHeaders holds the default value on creation for the extra_headers field.
 	channelmonitor.DefaultExtraHeaders = channelmonitorDescExtraHeaders.Default.(map[string]string)
 	// channelmonitorDescBodyOverrideMode is the schema descriptor for body_override_mode field.
-	channelmonitorDescBodyOverrideMode := channelmonitorFields[15].Descriptor()
+	channelmonitorDescBodyOverrideMode := channelmonitorFields[19].Descriptor()
 	// channelmonitor.DefaultBodyOverrideMode holds the default value on creation for the body_override_mode field.
 	channelmonitor.DefaultBodyOverrideMode = channelmonitorDescBodyOverrideMode.Default.(string)
 	// channelmonitor.BodyOverrideModeValidator is a validator for the "body_override_mode" field. It is called by the builders before save.

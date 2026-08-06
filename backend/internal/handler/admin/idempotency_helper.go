@@ -57,6 +57,23 @@ func adminActorScope(c *gin.Context) string {
 	return actorScope
 }
 
+// buildInt64PointerUpdateParam 把 update 请求里的 (*int64 + clear flag) 转成 service 层的 **int64 三态。
+//   - value == nil && clear == false：返回 nil（不更新）
+//   - clear == true：返回 &nil（清空）
+//   - value != nil：返回指向 value 的 **int64（覆盖）
+func buildInt64PointerUpdateParam(value *int64, clear bool) **int64 {
+	if clear {
+		var nilPtr *int64
+		return &nilPtr
+	}
+	if value == nil {
+		return nil
+	}
+	v := *value
+	inner := &v
+	return &inner
+}
+
 func executeAdminIdempotentJSON(
 	c *gin.Context,
 	scope string,

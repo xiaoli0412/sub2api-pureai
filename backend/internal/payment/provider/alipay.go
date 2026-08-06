@@ -2,8 +2,15 @@ package provider
 
 import (
 	"context"
+	"crypto/md5"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/pem"
 	"fmt"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -39,26 +46,28 @@ var (
 	}
 )
 
-// Alipay implements payment.Provider and payment.CancelableProvider using the smartwalle/alipay SDK.
 type Alipay struct {
 	instanceID string
-	config     map[string]string // appId, privateKey, publicKey (or alipayPublicKey), notifyUrl, returnUrl
+	config     map[string]string // appId, privateKey, publicKey/certificate fields, notifyUrl, returnUrl
 
 	mu     sync.Mutex
 	client *alipay.Client
 }
 
+const (
+	alipayDefaultProductionGateway = "https://openapi.alipay.com/gateway.do"
+	alipayDefaultSandboxGateway    = "https://openapi-sandbox.dl.alipaydev.com/gateway.do"
+)
+
 // NewAlipay creates a new Alipay provider instance.
 func NewAlipay(instanceID string, config map[string]string) (*Alipay, error) {
-	required := []string{"appId", "privateKey"}
-	for _, k := range required {
-		if config[k] == "" {
-			return nil, fmt.Errorf("alipay config missing required key: %s", k)
-		}
+	normalized, err := normalizeAlipayConfig(config)
+	if err != nil {
+		return nil, err
 	}
 	return &Alipay{
 		instanceID: instanceID,
-		config:     config,
+		config:     normalized,
 	}, nil
 }
 
@@ -68,22 +77,284 @@ func (a *Alipay) getClient() (*alipay.Client, error) {
 	if a.client != nil {
 		return a.client, nil
 	}
-	client, err := alipay.New(a.config["appId"], a.config["privateKey"], true)
+	client, err := newAlipayClient(a.config)
 	if err != nil {
-		return nil, fmt.Errorf("alipay init client: %w", err)
-	}
-	pubKey := a.config["publicKey"]
-	if pubKey == "" {
-		pubKey = a.config["alipayPublicKey"]
-	}
-	if pubKey == "" {
-		return nil, fmt.Errorf("alipay config missing required key: publicKey (or alipayPublicKey)")
-	}
-	if err := client.LoadAliPayPublicKey(pubKey); err != nil {
-		return nil, fmt.Errorf("alipay load public key: %w", err)
+		return nil, err
 	}
 	a.client = client
-	return a.client, nil
+	return client, nil
+}
+
+func normalizeAlipayConfig(raw map[string]string) (map[string]string, error) {
+	config := make(map[string]string, len(raw)+8)
+	for key, value := range raw {
+		config[key] = value
+	}
+
+	for _, key := range []string{"appId", "privateKey"} {
+		if strings.TrimSpace(config[key]) == "" {
+			return nil, fmt.Errorf("alipay config missing required key: %s", key)
+		}
+	}
+	config["appId"] = strings.TrimSpace(config["appId"])
+
+	privateKey, err := loadAlipayConfigValue(config, "privateKey", "privateKeyPath")
+	if err != nil {
+		return nil, err
+	}
+	config["privateKey"] = privateKey
+
+	signType := strings.ToUpper(strings.TrimSpace(config["signType"]))
+	if signType == "" {
+		signType = "RSA2"
+	}
+	if signType != "RSA2" {
+		return nil, fmt.Errorf("alipay config signType must be RSA2, got %q", signType)
+	}
+	config["signType"] = signType
+
+	publicKey, err := loadAlipayConfigValue(config, "publicKey", "publicKeyPath")
+	if err != nil {
+		return nil, err
+	}
+	legacyPublicKey, err := loadAlipayConfigValue(config, "alipayPublicKey", "alipayPublicKeyPath")
+	if err != nil {
+		return nil, err
+	}
+	if publicKey == "" {
+		publicKey = legacyPublicKey
+	}
+	config["publicKey"] = publicKey
+	config["alipayPublicKey"] = legacyPublicKey
+
+	certificateFields := []struct {
+		key     string
+		pathKey string
+	}{
+		{key: "appCertContent", pathKey: "appCertPath"},
+		{key: "alipayPublicCertContent", pathKey: "alipayPublicCertPath"},
+		{key: "rootCertContent", pathKey: "rootCertPath"},
+	}
+	certificateConfigured := false
+	for _, field := range certificateFields {
+		value, err := loadAlipayConfigValue(config, field.key, field.pathKey)
+		if err != nil {
+			return nil, err
+		}
+		config[field.key] = value
+		certificateConfigured = certificateConfigured || value != ""
+	}
+	if certificateConfigured {
+		if publicKey != "" {
+			return nil, fmt.Errorf("alipay config certificate mode cannot be combined with publicKey")
+		}
+		for _, field := range certificateFields {
+			if strings.TrimSpace(config[field.key]) == "" {
+				return nil, fmt.Errorf("alipay config certificate mode requires %s", field.key)
+			}
+		}
+		if err := validateAlipayCertificates(config); err != nil {
+			return nil, err
+		}
+	} else if publicKey == "" {
+		// Keep legacy deferred validation semantics: provider instances may be
+		// stored as drafts and merchant identity checks may run before a payment
+		// client is needed. The SDK client validates the key material on first use.
+		config["publicKey"] = ""
+	}
+
+	if encryptKey := strings.TrimSpace(config["encryptKey"]); encryptKey != "" {
+		decoded, err := base64.StdEncoding.DecodeString(encryptKey)
+		if err != nil {
+			return nil, fmt.Errorf("alipay config encryptKey must be base64: %w", err)
+		}
+		if len(decoded) != 16 && len(decoded) != 24 && len(decoded) != 32 {
+			return nil, fmt.Errorf("alipay config encryptKey must decode to 16, 24, or 32 bytes, got %d", len(decoded))
+		}
+		config["encryptKey"] = encryptKey
+	}
+
+	if _, _, err := resolveAlipayGateway(config); err != nil {
+		return nil, err
+	}
+	return config, nil
+}
+
+func loadAlipayConfigValue(config map[string]string, key, pathKey string) (string, error) {
+	value := strings.TrimSpace(config[key])
+	path := strings.TrimSpace(config[pathKey])
+	if value != "" && path != "" {
+		return "", fmt.Errorf("alipay config %s and %s cannot both be set", key, pathKey)
+	}
+	if path == "" {
+		return value, nil
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("alipay config %s: read %q: %w", pathKey, path, err)
+	}
+	value = strings.TrimSpace(string(contents))
+	if value == "" {
+		return "", fmt.Errorf("alipay config %s points to an empty file", pathKey)
+	}
+	return value, nil
+}
+
+func resolveAlipayGateway(config map[string]string) (string, bool, error) {
+	// customGateway is an explicit override. gatewayUrl remains the frontend
+	// template field and wins over environment defaults when it is present.
+	gateway := strings.TrimSpace(config["customGateway"])
+	if gateway == "" {
+		gateway = strings.TrimSpace(config["gatewayUrl"])
+	}
+	if gateway == "" {
+		switch strings.ToLower(strings.TrimSpace(config["environment"])) {
+		case "", "production", "prod":
+			gateway = alipayDefaultProductionGateway
+		case "sandbox", "test":
+			gateway = alipayDefaultSandboxGateway
+		default:
+			return "", false, fmt.Errorf("alipay config environment must be production or sandbox, got %q", config["environment"])
+		}
+	}
+
+	parsed, err := url.Parse(gateway)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", false, fmt.Errorf("alipay config gatewayUrl must be an absolute http(s) URL without query or fragment, got %q", gateway)
+	}
+	production := !isAlipaySandboxGateway(parsed)
+	return gateway, production, nil
+}
+
+func isAlipaySandboxGateway(gateway *url.URL) bool {
+	host := strings.ToLower(gateway.Hostname())
+	return strings.Contains(host, "sandbox") || strings.Contains(host, "alipaydev")
+}
+
+func newAlipayClient(config map[string]string) (*alipay.Client, error) {
+	gateway, production, err := resolveAlipayGateway(config)
+	if err != nil {
+		return nil, err
+	}
+	var opts []alipay.OptionFunc
+	if production {
+		opts = append(opts, alipay.WithProductionGateway(gateway))
+	} else {
+		opts = append(opts, alipay.WithSandboxGateway(gateway))
+	}
+	client, err := alipay.New(config["appId"], config["privateKey"], production, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("alipay config privateKey is invalid: %w", err)
+	}
+
+	if config["appCertContent"] != "" {
+		if err := client.LoadAppCertPublicKey(config["appCertContent"]); err != nil {
+			return nil, fmt.Errorf("alipay config appCertContent is invalid: %w", err)
+		}
+		if err := client.LoadAliPayRootCert(config["rootCertContent"]); err != nil {
+			return nil, fmt.Errorf("alipay config rootCertContent is invalid: %w", err)
+		}
+		if err := client.LoadAlipayCertPublicKey(config["alipayPublicCertContent"]); err != nil {
+			return nil, fmt.Errorf("alipay config alipayPublicCertContent is invalid: %w", err)
+		}
+	} else if err := client.LoadAliPayPublicKey(config["publicKey"]); err != nil {
+		return nil, fmt.Errorf("alipay config publicKey is invalid: %w", err)
+	}
+
+	if encryptKey := strings.TrimSpace(config["encryptKey"]); encryptKey != "" {
+		if err := client.SetEncryptKey(encryptKey); err != nil {
+			return nil, fmt.Errorf("alipay config encryptKey is invalid: %w", err)
+		}
+	}
+	return client, nil
+}
+
+func validateAlipayCertificates(config map[string]string) error {
+	appCerts, err := parseAlipayCertificates(config["appCertContent"], "appCertContent")
+	if err != nil {
+		return err
+	}
+	if len(appCerts) != 1 || !isRSAAlipayCertificate(appCerts[0]) {
+		return fmt.Errorf("alipay config appCertContent must contain one RSA certificate")
+	}
+
+	publicCerts, err := parseAlipayCertificates(config["alipayPublicCertContent"], "alipayPublicCertContent")
+	if err != nil {
+		return err
+	}
+	if len(publicCerts) != 1 || !isRSAAlipayCertificate(publicCerts[0]) {
+		return fmt.Errorf("alipay config alipayPublicCertContent must contain one RSA certificate")
+	}
+
+	rootCerts, err := parseAlipayCertificates(config["rootCertContent"], "rootCertContent")
+	if err != nil {
+		return err
+	}
+	rootSerials := make([]string, 0, len(rootCerts))
+	for _, cert := range rootCerts {
+		if !isRSAAlipayCertificate(cert) || (cert.SignatureAlgorithm != x509.SHA256WithRSA && cert.SignatureAlgorithm != x509.SHA1WithRSA) {
+			continue
+		}
+		rootSerials = append(rootSerials, alipayCertificateSN(cert))
+	}
+	if len(rootSerials) == 0 {
+		return fmt.Errorf("alipay config rootCertContent must contain an RSA root certificate")
+	}
+
+	if expected := strings.TrimSpace(config["appCertSn"]); expected != "" {
+		actual := alipayCertificateSN(appCerts[0])
+		if expected != actual {
+			return fmt.Errorf("alipay config appCertSn %q does not match appCertContent serial %q", expected, actual)
+		}
+	}
+	if expected := strings.TrimSpace(config["alipayRootCertSn"]); expected != "" {
+		actual := strings.Join(rootSerials, "_")
+		if expected != actual {
+			return fmt.Errorf("alipay config alipayRootCertSn %q does not match rootCertContent serial %q", expected, actual)
+		}
+	}
+	return nil
+}
+
+func parseAlipayCertificates(raw, field string) ([]*x509.Certificate, error) {
+	remaining := []byte(raw)
+	certs := make([]*x509.Certificate, 0, 1)
+	for len(remaining) > 0 {
+		block, rest := pem.Decode(remaining)
+		if block == nil {
+			if len(certs) == 0 {
+				return nil, fmt.Errorf("alipay config %s must contain PEM certificate data", field)
+			}
+			if strings.TrimSpace(string(remaining)) != "" {
+				return nil, fmt.Errorf("alipay config %s contains invalid trailing data", field)
+			}
+			break
+		}
+		if block.Type != "CERTIFICATE" {
+			return nil, fmt.Errorf("alipay config %s contains PEM block %q, expected CERTIFICATE", field, block.Type)
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("alipay config %s contains invalid certificate: %w", field, err)
+		}
+		certs = append(certs, cert)
+		remaining = rest
+	}
+	if len(certs) == 0 {
+		return nil, fmt.Errorf("alipay config %s must contain a certificate", field)
+	}
+	return certs, nil
+}
+
+func isRSAAlipayCertificate(cert *x509.Certificate) bool {
+	_, ok := cert.PublicKey.(*rsa.PublicKey)
+	return ok
+}
+
+// This matches smartwalle/alipay's certificate serial calculation.
+func alipayCertificateSN(cert *x509.Certificate) string {
+	digest := md5.Sum([]byte(cert.Issuer.String() + cert.SerialNumber.String()))
+	return hex.EncodeToString(digest[:])
 }
 
 func (a *Alipay) Name() string        { return "Alipay" }

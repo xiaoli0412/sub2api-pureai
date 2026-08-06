@@ -71,6 +71,22 @@ const (
 	MonitorStatusFailed      = "failed"
 	MonitorStatusError       = "error"
 
+	// MonitorStatusSourceProbe / Logs 标识当前展示状态来自探测还是真实请求日志。
+	// 写入 channel_monitors.status_source 与 MonitorStatusSummary.StatusSource。
+	MonitorStatusSourceProbe = "probe"
+	MonitorStatusSourceLogs  = "logs"
+
+	// monitorLogStatusWindow 基于真实请求日志判定状态时回看的时间窗口。
+	// 与典型探测间隔（60s-5min）错开，保证日志窗口内有足够样本。
+	monitorLogStatusWindow = 10 * time.Minute
+	// monitorLogStatusMinSamples 日志窗口内最少样本数；不足则回退探测，
+	// 避免少量请求被误判为"无人用"而丢掉日志状态。
+	monitorLogStatusMinSamples = 5
+	// monitorLogStatusDegradedRate 低于该成功率（0-100）视为 degraded。
+	monitorLogStatusDegradedRate = 95.0
+	// monitorLogStatusFailedRate 低于该成功率视为 failed。
+	monitorLogStatusFailedRate = 80.0
+
 	// monitorAvailability7Days / 15 / 30 用于聚合查询窗口。
 	monitorAvailability7Days  = 7
 	monitorAvailability15Days = 15

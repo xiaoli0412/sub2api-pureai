@@ -6,11 +6,19 @@
 # the deploy directory.
 #
 # Quick Start:
-#   1. Copy .env.example to .env and configure
+#   1. Copy .env.example to .env and configure (including POSTGRES_PASSWORD)
 #   2. mkdir -p data postgres_data redis_data
-#   3. docker-compose -f docker-compose.local.yml up -d
-#   4. Check logs: docker-compose -f docker-compose.local.yml logs -f sub2api
+#   3. docker compose -f docker-compose.local.yml up -d
+#   4. Check logs: docker compose -f docker-compose.local.yml logs -f sub2api
 #   5. Access: http://localhost:8080
+#
+# Database host names depend on where a command runs:
+#   - Inside Compose: DATABASE_HOST=postgres, DATABASE_PORT=5432
+#   - On the host: PGHOST=127.0.0.1, PGPORT=${POSTGRES_HOST_PORT:-5433}
+#     (the local-only PostgreSQL port below is provided for migration tools)
+#
+# AUTO_SETUP=true is the supported startup path and applies embedded SQL
+# migrations. AUTO_MIGRATE is not a recognized application setting.
 #
 # Migration to New Server:
 #   1. docker-compose -f docker-compose.local.yml down
@@ -57,9 +65,8 @@ services:
       - RUN_MODE=${RUN_MODE:-standard}
       - UPDATE_GITHUB_TOKEN=${UPDATE_GITHUB_TOKEN:-}
 
-      # =======================================================================
-      # Database Configuration (PostgreSQL)
-      # =======================================================================
+      # Database host/port inside the Compose network. Host-side migration tools
+      # must use 127.0.0.1:${POSTGRES_HOST_PORT:-5433} instead.
       - DATABASE_HOST=postgres
       - DATABASE_PORT=5432
       - DATABASE_USER=${POSTGRES_USER:-sub2api}
@@ -206,6 +213,10 @@ services:
     volumes:
       # Local directory mapping for easy migration
       - ./postgres_data:/var/lib/postgresql/data:Z
+    ports:
+      # Loopback-only access for host-side pg_dump/psql. Inside Compose use
+      # postgres:5432 instead of this host port.
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-sub2api}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
@@ -220,8 +231,8 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
-    # 注意：不暴露端口到宿主机，应用通过内部网络连接
-    # 如需调试，可临时添加：ports: ["127.0.0.1:5433:5432"]
+    # Host-side tools use 127.0.0.1:${POSTGRES_HOST_PORT:-5433}; the application
+    # uses the private Compose network at postgres:5432.
 
   # ===========================================================================
   # Redis Cache

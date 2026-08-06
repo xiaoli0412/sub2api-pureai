@@ -1,6 +1,10 @@
 package admin
 
 import (
+	"net/http"
+	"path/filepath"
+	"strings"
+
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -106,6 +110,71 @@ func (h *BackupHandler) CreateBackup(c *gin.Context) {
 		return
 	}
 	response.Accepted(c, record)
+}
+
+// CreateLocalBackup POST /api/v1/admin/backups/local
+// 创建本地备份：pg_dump -> gzip -> 本地磁盘文件，无需配置 S3。
+type CreateLocalBackupRequest struct {
+	ExpireDays *int    `json:"expire_days"` // nil=14，0=永不过期
+	LocalDir   *string `json:"local_dir"`   // nil=使用默认目录 data/backups
+}
+
+func (h *BackupHandler) CreateLocalBackup(c *gin.Context) {
+	var req CreateLocalBackupRequest
+	_ = c.ShouldBindJSON(&req) // 允许空 body
+
+	expireDays := 14
+	if req.ExpireDays != nil {
+		expireDays = *req.ExpireDays
+	}
+	localDir := ""
+	if req.LocalDir != nil {
+		localDir = strings.TrimSpace(*req.LocalDir)
+	}
+
+	record, err := h.backupService.StartLocalBackup(c.Request.Context(), "manual", expireDays, localDir)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Accepted(c, record)
+}
+
+// DownloadLocalBackup GET /api/v1/admin/backups/:id/download
+// 直接流式返回本地备份文件（Content-Disposition: attachment）。
+// 仅 StorageType=local 的备份可下载；S3 备份请走 /download-url 预签名链接。
+func (h *BackupHandler) DownloadLocalBackup(c *gin.Context) {
+	backupID := c.Param("id")
+	if backupID == "" {
+		response.BadRequest(c, "backup ID is required")
+		return
+	}
+	path, err := h.backupService.GetLocalBackupPath(c.Request.Context(), backupID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	fileName := filepath.Base(path)
+	c.Header("Content-Disposition", "attachment; filename=\""+fileName+"\"")
+	c.Header("Content-Type", "application/gzip")
+	http.ServeFile(c.Writer, c.Request, path)
+}
+
+// isUnderLocalBackupDir 校验路径是否位于本地备份根目录之下，防止路径穿越下载任意文件。
+func isUnderLocalBackupDir(path string) bool {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	root, err := filepath.Abs(service.DefaultLocalBackupDir)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(root, abs)
+	if err != nil {
+		return false
+	}
+	return rel != "." && !strings.HasPrefix(rel, "..") && !strings.HasPrefix(rel, "/")
 }
 
 func (h *BackupHandler) ListBackups(c *gin.Context) {

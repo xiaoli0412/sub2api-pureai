@@ -4,13 +4,21 @@ package provider
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
+	"math/big"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/smartwalle/alipay/v3"
+	"github.com/stretchr/testify/require"
 )
 
 func TestIsTradeNotExist(t *testing.T) {
@@ -134,6 +142,105 @@ func TestNewAlipay(t *testing.T) {
 			}
 		})
 	}
+}
+
+func testAlipayCertificatePEM(t *testing.T, serial int64, signatureAlgorithm x509.SignatureAlgorithm) (string, *x509.Certificate) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(serial),
+		Subject:               pkix.Name{CommonName: "test-alipay-certificate"},
+		Issuer:                pkix.Name{CommonName: "test-alipay-certificate"},
+		NotBefore:             time.Now().Add(-time.Minute),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		SignatureAlgorithm:    signatureAlgorithm,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})), cert
+}
+
+func TestNormalizeAlipayConfigCertificateMode(t *testing.T) {
+	appPEM, appCert := testAlipayCertificatePEM(t, 1, x509.SHA256WithRSA)
+	publicPEM, _ := testAlipayCertificatePEM(t, 2, x509.SHA256WithRSA)
+	rootPEM, rootCert := testAlipayCertificatePEM(t, 3, x509.SHA256WithRSA)
+
+	config, err := normalizeAlipayConfig(map[string]string{
+		"appId":                   "alipay-app-test",
+		"privateKey":              "private-key-placeholder",
+		"appCertContent":          appPEM,
+		"alipayPublicCertContent": publicPEM,
+		"rootCertContent":         rootPEM,
+		"appCertSn":               alipayCertificateSN(appCert),
+		"alipayRootCertSn":        alipayCertificateSN(rootCert),
+		"environment":             "sandbox",
+	})
+	require.NoError(t, err)
+	require.Equal(t, strings.TrimSpace(appPEM), config["appCertContent"])
+	require.Equal(t, strings.TrimSpace(publicPEM), config["alipayPublicCertContent"])
+}
+
+func TestNormalizeAlipayConfigCertificateModeRejectsSerialMismatch(t *testing.T) {
+	appPEM, _ := testAlipayCertificatePEM(t, 11, x509.SHA256WithRSA)
+	publicPEM, _ := testAlipayCertificatePEM(t, 12, x509.SHA256WithRSA)
+	rootPEM, _ := testAlipayCertificatePEM(t, 13, x509.SHA256WithRSA)
+
+	_, err := normalizeAlipayConfig(map[string]string{
+		"appId":                   "alipay-app-test",
+		"privateKey":              "private-key-placeholder",
+		"appCertContent":          appPEM,
+		"alipayPublicCertContent": publicPEM,
+		"rootCertContent":         rootPEM,
+		"appCertSn":               "wrong-serial",
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "appCertSn")
+}
+
+func TestNormalizeAlipayConfigCertificateModeRequiresAllCertificates(t *testing.T) {
+	appPEM, _ := testAlipayCertificatePEM(t, 21, x509.SHA256WithRSA)
+
+	_, err := normalizeAlipayConfig(map[string]string{
+		"appId":          "alipay-app-test",
+		"privateKey":     "private-key-placeholder",
+		"appCertContent": appPEM,
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "alipayPublicCertContent")
+}
+
+func TestNormalizeAlipayConfigRejectsInvalidEncryptionKey(t *testing.T) {
+	_, err := normalizeAlipayConfig(map[string]string{
+		"appId":      "alipay-app-test",
+		"privateKey": "private-key-placeholder",
+		"publicKey":  "public-key-placeholder",
+		"encryptKey": "not-base64",
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "encryptKey")
+}
+
+func TestNormalizeAlipayConfigRejectsGatewayQuery(t *testing.T) {
+	_, err := normalizeAlipayConfig(map[string]string{
+		"appId":      "alipay-app-test",
+		"privateKey": "private-key-placeholder",
+		"publicKey":  "public-key-placeholder",
+		"gatewayUrl": "https://example.com/gateway.do?debug=1",
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "gatewayUrl")
 }
 
 func TestCreateTradeUsesPagePayForDesktop(t *testing.T) {

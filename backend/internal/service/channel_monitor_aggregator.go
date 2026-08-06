@@ -12,20 +12,19 @@ import (
 // BatchMonitorStatusSummary 批量聚合多个监控的 latest + 7d 可用率（admin/user list 用，消除 N+1）。
 // 失败时返回空 map，错误仅日志，不影响列表渲染。
 //
-// 参数：
-//   - ids: 要聚合的 monitor ID 列表
-//   - primaryByID: monitor ID -> primary model（用于读 7d 可用率与 latest 状态）
-//   - extrasByID: monitor ID -> extra models 列表（用于读 latest 状态填充 ExtraModels）
+// 当监控关联了 account_id 且开启 use_logs_for_status 时，优先用真实请求日志判定主模型状态；
+// 日志样本不足或未关联账号时回退到探测 latest。
+//
+// 参数 monitors 直接传入监控对象，便于读取 account_id / channel_id 做日志聚合。
 func (s *ChannelMonitorService) BatchMonitorStatusSummary(
 	ctx context.Context,
-	ids []int64,
-	primaryByID map[int64]string,
-	extrasByID map[int64][]string,
+	monitors []*ChannelMonitor,
 ) map[int64]MonitorStatusSummary {
-	out := make(map[int64]MonitorStatusSummary, len(ids))
-	if len(ids) == 0 {
+	out := make(map[int64]MonitorStatusSummary, len(monitors))
+	if len(monitors) == 0 {
 		return out
 	}
+	ids, _, _ := collectMonitorIndexes(monitors)
 	latestMap, err := s.repo.ListLatestForMonitorIDs(ctx, ids)
 	if err != nil {
 		slog.Warn("channel_monitor: batch load latest failed", "error", err)
@@ -36,16 +35,128 @@ func (s *ChannelMonitorService) BatchMonitorStatusSummary(
 		slog.Warn("channel_monitor: batch compute availability failed", "error", err)
 		availMap = map[int64][]*ChannelMonitorAvailability{}
 	}
+	// 日志驱动状态：批量查询关联账号的请求日志聚合，覆盖 primary + extra models。
+	logStatusByID := s.batchLogStatus(ctx, monitors)
 
-	for _, id := range ids {
-		out[id] = buildStatusSummary(
-			indexLatestByModel(latestMap[id]),
-			indexAvailabilityByModel(availMap[id]),
-			primaryByID[id],
-			extrasByID[id],
+	for _, m := range monitors {
+		summary := buildStatusSummary(
+			indexLatestByModel(latestMap[m.ID]),
+			indexAvailabilityByModel(availMap[m.ID]),
+			m.PrimaryModel,
+			m.ExtraModels,
 		)
+		// 用日志状态覆盖 primary + extra（日志可用且样本充足时）。
+		applyLogStatusToSummary(&summary, logStatusByID[m.ID], m.PrimaryModel, m.ExtraModels)
+		out[m.ID] = summary
 	}
 	return out
+}
+
+// batchLogStatus 批量查询关联了 account_id 且开启 use_logs_for_status 的监控的请求日志聚合。
+// 返回 map[monitorID]map[model]*ChannelMonitorLogStatus。失败仅日志，返回空 map（回退探测）。
+func (s *ChannelMonitorService) batchLogStatus(
+	ctx context.Context,
+	monitors []*ChannelMonitor,
+) map[int64]map[string]*ChannelMonitorLogStatus {
+	out := make(map[int64]map[string]*ChannelMonitorLogStatus, len(monitors))
+	if s == nil || s.usageLogReader == nil {
+		return out
+	}
+	targets := make([]ChannelMonitorLogTarget, 0, len(monitors))
+	for _, m := range monitors {
+		if m == nil || !m.UseLogsForStatus || m.AccountID == nil {
+			continue
+		}
+		targets = append(targets, ChannelMonitorLogTarget{
+			MonitorID: m.ID,
+			AccountID: *m.AccountID,
+			ChannelID: cloneInt64Pointer(m.ChannelID),
+			Models:    appendUniqueModels([]string{m.PrimaryModel}, m.ExtraModels),
+		})
+	}
+	if len(targets) == 0 {
+		return out
+	}
+	logStatusByMonitor, err := s.usageLogReader.GetChannelMonitorLogStatusBatch(
+		ctx, targets, monitorLogStatusWindow,
+	)
+	if err != nil {
+		slog.Warn("channel_monitor: batch log status failed", "error", err)
+		return out
+	}
+	for monitorID, statusByModel := range logStatusByMonitor {
+		if len(statusByModel) == 0 {
+			continue
+		}
+		copyMap := make(map[string]*ChannelMonitorLogStatus, len(statusByModel))
+		for model, status := range statusByModel {
+			copyMap[model] = status
+		}
+		out[monitorID] = copyMap
+	}
+	return out
+}
+
+// appendUniqueModels 把 src 追加到 dst，去重（大小写敏感），保持顺序。
+func appendUniqueModels(dst, src []string) []string {
+	seen := make(map[string]struct{}, len(dst)+len(src))
+	for _, m := range dst {
+		seen[m] = struct{}{}
+	}
+	for _, m := range src {
+		if _, ok := seen[m]; ok {
+			continue
+		}
+		seen[m] = struct{}{}
+		dst = append(dst, m)
+	}
+	return dst
+}
+
+// applyLogStatusToSummary 用日志聚合结果覆盖 summary 的 primary + extra 状态。
+// 仅当日志样本 >= monitorLogStatusMinSamples 时才覆盖；不足则保留探测值（StatusSource 留空）。
+func applyLogStatusToSummary(
+	summary *MonitorStatusSummary,
+	logStatusByModel map[string]*ChannelMonitorLogStatus,
+	primary string,
+	extras []string,
+) {
+	if summary == nil || len(logStatusByModel) == 0 {
+		return
+	}
+	if primary != "" {
+		if ls := logStatusByModel[primary]; ls != nil && ls.TotalRequests >= monitorLogStatusMinSamples {
+			summary.PrimaryStatus = logStatusToMonitorStatus(ls)
+			summary.PrimaryLatencyMs = ls.AvgLatencyMs
+			summary.StatusSource = MonitorStatusSourceLogs
+		}
+	}
+	for i := range summary.ExtraModels {
+		entry := &summary.ExtraModels[i]
+		if ls := logStatusByModel[entry.Model]; ls != nil && ls.TotalRequests >= monitorLogStatusMinSamples {
+			entry.Status = logStatusToMonitorStatus(ls)
+			entry.LatencyMs = ls.AvgLatencyMs
+		}
+	}
+}
+
+// logStatusToMonitorStatus 把日志聚合的成功率映射为监控状态字符串。
+//   - 成功率 >= monitorLogStatusDegradedRate → operational
+//   - 成功率 >= monitorLogStatusFailedRate → degraded
+//   - 否则 → failed
+func logStatusToMonitorStatus(ls *ChannelMonitorLogStatus) string {
+	if ls == nil || ls.TotalRequests == 0 {
+		return MonitorStatusFailed
+	}
+	rate := ls.SuccessRate()
+	switch {
+	case rate >= monitorLogStatusDegradedRate:
+		return MonitorStatusOperational
+	case rate >= monitorLogStatusFailedRate:
+		return MonitorStatusDegraded
+	default:
+		return MonitorStatusFailed
+	}
 }
 
 // ListUserView 用户只读视图：列出所有 enabled 监控的概览。
@@ -64,8 +175,8 @@ func (s *ChannelMonitorService) ListUserView(ctx context.Context) ([]*UserMonito
 		return []*UserMonitorView{}, nil
 	}
 
-	ids, primaryByID, extrasByID := collectMonitorIndexes(monitors)
-	summaries := s.BatchMonitorStatusSummary(ctx, ids, primaryByID, extrasByID)
+	ids, primaryByID, _ := collectMonitorIndexes(monitors)
+	summaries := s.BatchMonitorStatusSummary(ctx, monitors)
 	latestMap := s.batchLatest(ctx, ids)
 	timelineMap := s.batchTimeline(ctx, ids, primaryByID)
 
@@ -148,6 +259,8 @@ func (s *ChannelMonitorService) GetUserDetail(ctx context.Context, id int64) (*U
 	}
 
 	models := mergeModelDetails(m, latest, availMap)
+	// 日志驱动状态：覆盖 latest status（日志样本充足时）。
+	s.applyLogStatusToModelDetails(ctx, m, models)
 	return &UserMonitorDetail{
 		ID:        m.ID,
 		Name:      m.Name,
@@ -155,6 +268,46 @@ func (s *ChannelMonitorService) GetUserDetail(ctx context.Context, id int64) (*U
 		GroupName: m.GroupName,
 		Models:    models,
 	}, nil
+}
+
+// applyLogStatusToModelDetails 用单账号的请求日志聚合覆盖 ModelDetail.LatestStatus / LatestLatencyMs。
+// 日志样本不足或未关联账号时保留探测值。
+func (s *ChannelMonitorService) applyLogStatusToModelDetails(ctx context.Context, m *ChannelMonitor, models []ModelDetail) {
+	if s == nil || s.usageLogReader == nil || m == nil || !m.UseLogsForStatus || m.AccountID == nil {
+		return
+	}
+	allModels := make([]string, 0, len(models))
+	for _, md := range models {
+		allModels = append(allModels, md.Model)
+	}
+	if len(allModels) == 0 {
+		return
+	}
+	statusByMonitor, err := s.usageLogReader.GetChannelMonitorLogStatusBatch(
+		ctx,
+		[]ChannelMonitorLogTarget{{
+			MonitorID: m.ID,
+			AccountID: *m.AccountID,
+			ChannelID: cloneInt64Pointer(m.ChannelID),
+			Models:    append([]string{}, allModels...),
+		}},
+		monitorLogStatusWindow,
+	)
+	if err != nil {
+		slog.Warn("channel_monitor: detail log status failed", "error", err)
+		return
+	}
+	statusByModel := statusByMonitor[m.ID]
+	if len(statusByModel) == 0 {
+		return
+	}
+	for i := range models {
+		md := &models[i]
+		if ls := statusByModel[md.Model]; ls != nil && ls.TotalRequests >= monitorLogStatusMinSamples {
+			md.LatestStatus = logStatusToMonitorStatus(ls)
+			md.LatestLatencyMs = ls.AvgLatencyMs
+		}
+	}
 }
 
 // collectAvailabilityWindows 一次性查询 7/15/30 天三个窗口，按模型组织。

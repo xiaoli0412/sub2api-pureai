@@ -56,10 +56,10 @@ Use the automated preparation script for the easiest setup:
 
 ```bash
 # Download and run the preparation script
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/docker-deploy.sh | bash
+curl -sSL https://raw.githubusercontent.com/xiaoli0412/sub2api-pureai/main/deploy/docker-deploy.sh | bash
 
 # Or download first, then run
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/docker-deploy.sh -o docker-deploy.sh
+curl -sSL https://raw.githubusercontent.com/xiaoli0412/sub2api-pureai/main/deploy/docker-deploy.sh -o docker-deploy.sh
 chmod +x docker-deploy.sh
 ./docker-deploy.sh
 ```
@@ -92,7 +92,7 @@ If you prefer manual control:
 
 ```bash
 # Clone repository
-git clone https://github.com/Wei-Shaw/sub2api.git
+git clone https://github.com/xiaoli0412/sub2api-pureai.git
 cd sub2api/deploy
 
 # Configure environment
@@ -248,6 +248,29 @@ See `.env.example` for all available options.
 
 > **Note:** The `docker-deploy.sh` script automatically generates `JWT_SECRET`, `TOTP_ENCRYPTION_KEY`, and `POSTGRES_PASSWORD` for you.
 
+### Database Bundle Migration
+
+Use the repository migration scripts for a logical PostgreSQL backup/restore.
+They require PostgreSQL client tools and a non-interactive password source
+(`PGPASSWORD` or `PGPASSFILE`), and never include real credentials in the
+repository.
+
+```bash
+# Host-side tools connect through the loopback-only published port.
+export PGPASSWORD='your-local-password'
+export PGHOST=127.0.0.1 PGPORT=${POSTGRES_HOST_PORT:-5433}
+./scripts/migrate.sh export ./backups
+./scripts/migrate.sh import ./backups/migration-bundle-<timestamp>.tar.gz
+```
+
+Inside a container on the Compose network, set `PGHOST=postgres PGPORT=5432`.
+The application itself always uses `DATABASE_HOST=postgres` and
+`DATABASE_PORT=5432`. `AUTO_SETUP=true` is the supported startup path and
+applies embedded migrations; `AUTO_MIGRATE` is not a recognized setting.
+Both scripts validate bundle paths before extraction, use portable compression
+(the PowerShell version does not require gzip), and restore with
+`ON_ERROR_STOP=1` in a single transaction.
+
 ### Easy Migration (Local Directory Version)
 
 When using `docker-compose.local.yml`, all data is stored in local directories, making migration simple:
@@ -376,12 +399,12 @@ For production servers using systemd.
 ### One-Line Installation
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/xiaoli0412/sub2api-pureai/main/deploy/install.sh | sudo bash
 ```
 
 ### Manual Installation
 
-1. Download the latest release from [GitHub Releases](https://github.com/Wei-Shaw/sub2api/releases)
+1. Download the latest release from [GitHub Releases](https://github.com/xiaoli0412/sub2api-pureai/releases)
 2. Extract and copy the binary to `/opt/sub2api/`
 3. Copy `sub2api.service` to `/etc/systemd/system/`
 4. Run:

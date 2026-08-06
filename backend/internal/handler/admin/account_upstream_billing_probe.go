@@ -120,3 +120,29 @@ func (h *AccountHandler) ProbeUpstreamBillingBatch(c *gin.Context) {
 	}
 	response.Success(c, gin.H{"results": h.upstreamBillingProbe.ProbeAccounts(c.Request.Context(), accountIDs)})
 }
+
+// CheckUpstreamBillingSupport GET /api/v1/admin/accounts/:id/upstream-billing-probe/support
+// 只读检查账号身份是否支持上游计费探测（/v1/sub2api/billing）。
+// 不发任何上游请求，供前端在编辑账号时决定是否展示"默认开启探测"引导。
+func (h *AccountHandler) CheckUpstreamBillingSupport(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || accountID <= 0 {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	supported := service.IsUpstreamBillingProbeIdentity(account.Platform, account.Type)
+	hint := ""
+	if !supported {
+		hint = "上游不兼容 /v1/sub2api/billing，无法自动探测倍率与价格，请手动配置倍率与价格。"
+	}
+	response.Success(c, gin.H{
+		"account_id": accountID,
+		"supported":  supported,
+		"hint":       hint,
+	})
+}

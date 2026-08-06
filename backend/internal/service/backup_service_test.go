@@ -4,10 +4,13 @@ package service
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -244,6 +247,44 @@ func seedS3Config(t *testing.T, repo *mockSettingRepo) {
 	}
 	data, _ := json.Marshal(cfg)
 	require.NoError(t, repo.Set(context.Background(), settingKeyBackupS3Config, string(data)))
+}
+
+func newLocalBackupTestDir(t *testing.T) string {
+	t.Helper()
+	root, err := localBackupRoot()
+	require.NoError(t, err)
+	dir, err := os.MkdirTemp(root, "backup-test-")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
+func writeLocalGzipFile(t *testing.T, dir, name string, content []byte) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	file, err := os.Create(path)
+	require.NoError(t, err)
+	writer := gzip.NewWriter(file)
+	_, writeErr := writer.Write(content)
+	require.NoError(t, writeErr)
+	require.NoError(t, writer.Close())
+	require.NoError(t, file.Close())
+	return path
+}
+
+func saveCompletedLocalRecord(t *testing.T, svc *BackupService, id, path, startedAt string) *BackupRecord {
+	t.Helper()
+	record := &BackupRecord{
+		ID:          id,
+		Status:      "completed",
+		BackupType:  "postgres",
+		FileName:    filepath.Base(path),
+		StartedAt:   startedAt,
+		StorageType: BackupStorageTypeLocal,
+		LocalPath:   path,
+	}
+	require.NoError(t, svc.saveRecord(context.Background(), record))
+	return record
 }
 
 // ─── Tests ───
@@ -601,6 +642,178 @@ func TestBackupService_LoadS3Config_Corrupted(t *testing.T) {
 	cfg, err := svc.loadS3Config(context.Background())
 	require.Error(t, err)
 	require.Nil(t, cfg)
+}
+
+func TestBackupService_StartLocalBackup_CompletesAndValidatesArchive(t *testing.T) {
+	repo := newMockSettingRepo()
+	dumpContent := []byte("-- PostgreSQL dump\nCREATE TABLE local_test (id int);\n")
+	dumper := &mockDumper{dumpData: dumpContent}
+	svc := newTestBackupService(repo, dumper, newMockObjectStore())
+	dir := newLocalBackupTestDir(t)
+
+	record, err := svc.StartLocalBackup(context.Background(), "manual", 14, dir)
+	require.NoError(t, err)
+	require.Equal(t, "running", record.Status)
+	require.Equal(t, BackupStorageTypeLocal, record.StorageType)
+	require.NotEmpty(t, record.LocalPath)
+
+	svc.wg.Wait()
+
+	final, err := svc.GetBackupRecord(context.Background(), record.ID)
+	require.NoError(t, err)
+	require.Equal(t, "completed", final.Status)
+	require.Greater(t, final.SizeBytes, int64(0))
+	require.FileExists(t, final.LocalPath)
+	require.NoFileExists(t, final.LocalPath+".tmp")
+
+	path, err := svc.GetLocalBackupPath(context.Background(), record.ID)
+	require.NoError(t, err)
+	require.Equal(t, final.LocalPath, path)
+
+	file, err := os.Open(path)
+	require.NoError(t, err)
+	reader, err := gzip.NewReader(file)
+	require.NoError(t, err)
+	actual, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	require.NoError(t, reader.Close())
+	require.NoError(t, file.Close())
+	require.Equal(t, dumpContent, actual)
+}
+
+func TestBackupService_StartLocalBackup_DumpFailure(t *testing.T) {
+	repo := newMockSettingRepo()
+	svc := newTestBackupService(repo, &mockDumper{dumpErr: fmt.Errorf("pg_dump failed")}, newMockObjectStore())
+	dir := newLocalBackupTestDir(t)
+
+	record, err := svc.StartLocalBackup(context.Background(), "manual", 0, dir)
+	require.NoError(t, err)
+	svc.wg.Wait()
+
+	final, err := svc.GetBackupRecord(context.Background(), record.ID)
+	require.NoError(t, err)
+	require.Equal(t, "failed", final.Status)
+	require.Contains(t, final.ErrorMsg, "pg_dump")
+	require.NoFileExists(t, final.LocalPath)
+	require.NoFileExists(t, final.LocalPath+".tmp")
+}
+
+func TestBackupService_LocalRestoreAndStartRestoreRouting(t *testing.T) {
+	repo := newMockSettingRepo()
+	dumpContent := []byte("CREATE TABLE restore_local (id int);\n")
+	dumper := &mockDumper{dumpData: dumpContent}
+	svc := newTestBackupService(repo, dumper, newMockObjectStore())
+	dir := newLocalBackupTestDir(t)
+
+	record, err := svc.StartLocalBackup(context.Background(), "manual", 0, dir)
+	require.NoError(t, err)
+	svc.wg.Wait()
+
+	started, err := svc.StartRestore(context.Background(), record.ID)
+	require.NoError(t, err)
+	require.Equal(t, "running", started.RestoreStatus)
+	svc.wg.Wait()
+
+	final, err := svc.GetBackupRecord(context.Background(), record.ID)
+	require.NoError(t, err)
+	require.Equal(t, "completed", final.RestoreStatus)
+	require.Equal(t, dumpContent, dumper.restored)
+}
+
+func TestBackupService_LocalBackupRejectsCorruptArchive(t *testing.T) {
+	repo := newMockSettingRepo()
+	svc := newTestBackupService(repo, &mockDumper{}, newMockObjectStore())
+	dir := newLocalBackupTestDir(t)
+	path := filepath.Join(dir, "corrupt.sql.gz")
+	require.NoError(t, os.WriteFile(path, []byte("not gzip"), 0o600))
+	saveCompletedLocalRecord(t, svc, "local-corrupt", path, time.Now().Format(time.RFC3339))
+
+	_, err := svc.GetLocalBackupPath(context.Background(), "local-corrupt")
+	require.ErrorIs(t, err, ErrLocalBackupCorrupt)
+
+	_, err = svc.StartLocalRestore(context.Background(), "local-corrupt")
+	require.ErrorIs(t, err, ErrLocalBackupCorrupt)
+}
+
+func TestBackupService_LocalDeleteMissingFileIsIdempotent(t *testing.T) {
+	repo := newMockSettingRepo()
+	svc := newTestBackupService(repo, &mockDumper{}, newMockObjectStore())
+	dir := newLocalBackupTestDir(t)
+	path := writeLocalGzipFile(t, dir, "missing-after-record.sql.gz", []byte("dump"))
+	saveCompletedLocalRecord(t, svc, "local-missing", path, time.Now().Format(time.RFC3339))
+	require.NoError(t, os.Remove(path))
+
+	require.NoError(t, svc.DeleteBackup(context.Background(), "local-missing"))
+	_, err := svc.GetBackupRecord(context.Background(), "local-missing")
+	require.ErrorIs(t, err, ErrBackupNotFound)
+}
+
+func TestBackupService_LocalPathContainment(t *testing.T) {
+	repo := newMockSettingRepo()
+	svc := newTestBackupService(repo, &mockDumper{dumpData: []byte("dump")}, newMockObjectStore())
+
+	outside := t.TempDir()
+	_, err := svc.StartLocalBackup(context.Background(), "manual", 0, outside)
+	require.ErrorIs(t, err, ErrLocalBackupPathInvalid)
+
+	root, err := localBackupRoot()
+	require.NoError(t, err)
+	link := filepath.Join(root, "backup-test-escape-link")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlink creation is unavailable: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Remove(link) })
+	_, err = svc.StartLocalBackup(context.Background(), "manual", 0, link)
+	require.ErrorIs(t, err, ErrLocalBackupPathInvalid)
+
+	path := filepath.Join(root, "..", "outside.sql.gz")
+	_, err = canonicalLocalBackupPath(path)
+	require.ErrorIs(t, err, ErrLocalBackupPathInvalid)
+}
+
+func TestBackupService_CleanupLocalBackupsByRetentionAndRetriesFailedDelete(t *testing.T) {
+	repo := newMockSettingRepo()
+	svc := newTestBackupService(repo, &mockDumper{}, newMockObjectStore())
+	dir := newLocalBackupTestDir(t)
+	now := time.Now()
+
+	newestPath := writeLocalGzipFile(t, dir, "newest.sql.gz", []byte("newest"))
+	oldPath := writeLocalGzipFile(t, dir, "old.sql.gz", []byte("old"))
+	newest := saveCompletedLocalRecord(t, svc, "local-newest", newestPath, now.Format(time.RFC3339))
+	old := saveCompletedLocalRecord(t, svc, "local-old", oldPath, now.Add(-48*time.Hour).Format(time.RFC3339))
+
+	require.NoError(t, svc.cleanupOldBackups(context.Background(), &BackupScheduleConfig{RetainCount: 1}))
+	_, err := svc.GetBackupRecord(context.Background(), newest.ID)
+	require.NoError(t, err)
+	_, err = svc.GetBackupRecord(context.Background(), old.ID)
+	require.ErrorIs(t, err, ErrBackupNotFound)
+	require.NoFileExists(t, oldPath)
+
+	badDir := filepath.Join(dir, "non-empty-delete-target")
+	require.NoError(t, os.Mkdir(badDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(badDir, "keep"), []byte("keep"), 0o600))
+	bad := saveCompletedLocalRecord(t, svc, "local-delete-retry", badDir, now.Add(-72*time.Hour).Format(time.RFC3339))
+	require.NoError(t, svc.cleanupOldBackups(context.Background(), &BackupScheduleConfig{RetainCount: 1}))
+	_, err = svc.GetBackupRecord(context.Background(), bad.ID)
+	require.NoError(t, err)
+}
+
+func TestBackupService_LocalBackupRestoreMutuallyExclusive(t *testing.T) {
+	repo := newMockSettingRepo()
+	svc := newTestBackupService(repo, &mockDumper{dumpData: []byte("dump")}, newMockObjectStore())
+	dir := newLocalBackupTestDir(t)
+
+	svc.opMu.Lock()
+	svc.backingUp = true
+	svc.opMu.Unlock()
+	_, err := svc.StartLocalBackup(context.Background(), "manual", 0, dir)
+	require.ErrorIs(t, err, ErrBackupInProgress)
+	_, err = svc.StartLocalRestore(context.Background(), "missing")
+	require.ErrorIs(t, err, ErrRestoreInProgress)
+
+	svc.opMu.Lock()
+	svc.backingUp = false
+	svc.opMu.Unlock()
 }
 
 // ─── Async Backup Tests ───

@@ -926,6 +926,23 @@ export async function probeUpstreamBillingBatch(accountIds: number[]): Promise<U
   return data.results
 }
 
+export interface UpstreamBillingSupportInfo {
+  account_id: number
+  supported: boolean
+  hint: string
+}
+
+/**
+ * 只读检查账号身份是否支持上游计费探测（/v1/sub2api/billing）。
+ * 不发任何上游请求，供前端在编辑账号时决定是否展示"默认开启探测"引导。
+ */
+export async function checkUpstreamBillingSupport(id: number): Promise<UpstreamBillingSupportInfo> {
+  const { data } = await apiClient.get<UpstreamBillingSupportInfo>(
+    `/admin/accounts/${id}/upstream-billing-probe/support`
+  )
+  return data
+}
+
 export async function getOllamaCloudUsageSettings(): Promise<OllamaCloudUsageSettings> {
   const { data } = await apiClient.get<OllamaCloudUsageSettings>('/admin/accounts/ollama-cloud-usage/settings')
   return data

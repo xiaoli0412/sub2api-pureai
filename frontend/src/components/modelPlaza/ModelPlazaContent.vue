@@ -1,39 +1,65 @@
 <template>
-  <div class="space-y-5">
-    <!-- 页头(独立形态下展示标题;后台形态 AppHeader 已有页面标题) -->
-    <div v-if="!embedded">
-      <h1 class="text-2xl font-bold tracking-tight text-gray-900 dark:text-white sm:text-3xl">{{ t('modelPlaza.title') }}</h1>
-      <p class="mt-1.5 text-sm text-gray-500 dark:text-dark-400">{{ t('modelPlaza.description') }}</p>
-    </div>
+  <div class="model-plaza space-y-5">
+    <!-- Standalone pages need their own title; AppHeader supplies it in the console. -->
+    <header class="plaza-hero" :class="{ 'plaza-hero-embedded': embedded }">
+      <div class="min-w-0">
+        <div class="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-primary-600 dark:text-primary-300">
+          <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-50 text-primary-600 ring-1 ring-primary-100 dark:bg-primary-500/10 dark:text-primary-300 dark:ring-primary-400/20">
+            <Icon name="grid" size="sm" />
+          </span>
+          {{ t('modelPlaza.kicker') }}
+        </div>
+        <h1 v-if="!embedded" class="text-3xl font-bold tracking-tight text-gray-950 dark:text-white sm:text-4xl">
+          {{ t('modelPlaza.title') }}
+        </h1>
+        <h2 v-else class="text-2xl font-bold tracking-tight text-gray-950 dark:text-white">
+          {{ t('modelPlaza.title') }}
+        </h2>
+        <p class="mt-2 max-w-2xl text-sm leading-6 text-gray-600 dark:text-dark-300">
+          {{ t('modelPlaza.description') }}
+        </p>
+      </div>
+      <div class="plaza-stats" aria-label="Model plaza summary">
+        <div>
+          <strong>{{ groupCount }}</strong>
+          <span>{{ t('modelPlaza.stats.groups') }}</span>
+        </div>
+        <div>
+          <strong>{{ modelCount }}</strong>
+          <span>{{ t('modelPlaza.stats.models') }}</span>
+        </div>
+        <div>
+          <strong>{{ platformCount }}</strong>
+          <span>{{ t('modelPlaza.stats.platforms') }}</span>
+        </div>
+      </div>
+    </header>
 
-    <!-- 全局价格说明(管理员配置,Markdown) -->
     <div
       v-if="descriptionHtml"
-      class="plaza-description rounded-2xl border border-gray-100 bg-white px-5 py-4 text-sm shadow-card dark:border-dark-700/50 dark:bg-dark-800/50"
+      class="plaza-description rounded-xl border border-primary-100 bg-primary-50/70 px-5 py-4 text-sm dark:border-primary-400/20 dark:bg-primary-500/5"
       v-html="descriptionHtml"
     ></div>
 
-    <!-- 未登录提示 -->
     <p
       v-if="!isAuthenticated"
-      class="flex items-center gap-1.5 text-xs text-gray-400 dark:text-dark-500"
+      class="flex items-center gap-2 rounded-lg border border-dashed border-gray-200 px-3 py-2 text-xs text-gray-500 dark:border-dark-700 dark:text-dark-400"
     >
       <Icon name="infoCircle" size="xs" class="h-3.5 w-3.5" />
       {{ t('modelPlaza.anonymousHint') }}
     </p>
 
-    <!-- 加载/错误/空 -->
     <div v-if="loading" class="flex min-h-[240px] items-center justify-center">
       <div class="h-8 w-8 animate-spin rounded-full border-2 border-primary-600/25 border-t-primary-600 dark:border-primary-400/25 dark:border-t-primary-400"></div>
     </div>
     <div
       v-else-if="error"
-      class="rounded-2xl border border-red-200 bg-red-50 px-5 py-8 text-center text-sm text-red-600 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300"
+      class="rounded-xl border border-red-200 bg-red-50 px-5 py-8 text-center text-sm text-red-600 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300"
     >
       {{ t('modelPlaza.loadFailed') }}
     </div>
     <template v-else>
-      <!-- 筛选区:平台 → 分组 → 倍率 -->
+      <!-- Faceted filters only operate on the groups returned by the API. -->
       <PlazaFilterBar
         :platforms="platforms"
         :groups="groupOptions"
@@ -42,19 +68,33 @@
         :group-id="selectedGroupId"
         :rate="selectedRate"
         :search="searchQuery"
+        :type="selectedType"
+        :sort="sortBy"
         @update:platform="selectedPlatform = $event"
         @update:group-id="selectedGroupId = $event"
         @update:rate="selectedRate = $event"
         @update:search="searchQuery = $event"
+        @update:type="selectedType = $event"
+        @update:sort="sortBy = $event"
       />
 
-      <!-- 分组分节的模型清单(默认按生效倍率升序) -->
-      <div v-if="filteredGroups.length > 0" class="space-y-5">
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200/80 pb-3 text-xs text-gray-500 dark:border-dark-700 dark:text-dark-400">
+        <span class="inline-flex items-center gap-1.5">
+          <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+          {{ t('modelPlaza.results', { groups: filteredGroups.length, models: filteredModelCount }) }}
+        </span>
+        <span v-if="searchActive" class="rounded-md bg-gray-100 px-2 py-1 font-medium text-gray-600 dark:bg-dark-800 dark:text-dark-300">
+          {{ t('modelPlaza.searchingFor', { query: searchQuery }) }}
+        </span>
+      </div>
+
+      <!-- Group cards become a two-column directory on wide screens. -->
+      <div v-if="filteredGroups.length > 0" class="grid gap-5 xl:grid-cols-2">
         <PlazaGroupSection v-for="g in filteredGroups" :key="g.id" :group="g" />
       </div>
       <div
         v-else
-        class="rounded-2xl border border-dashed border-gray-300 px-5 py-12 text-center text-sm text-gray-500 dark:border-dark-600 dark:text-dark-400"
+        class="rounded-xl border border-dashed border-gray-300 px-5 py-12 text-center text-sm text-gray-500 dark:border-dark-600 dark:text-dark-400"
       >
         {{ searchActive ? t('modelPlaza.noSearchResult') : t('modelPlaza.empty') }}
       </div>
@@ -77,7 +117,7 @@ const props = defineProps<{
   response: ModelPlazaResponse | null
   loading: boolean
   error?: boolean
-  /** 后台内嵌形态(AppLayout 内):隐藏页头。 */
+  /** Console embedded form hides only the standalone page chrome. */
   embedded?: boolean
 }>()
 
@@ -89,8 +129,14 @@ const selectedPlatform = ref<string>('all')
 const selectedGroupId = ref<number | 'all'>('all')
 const selectedRate = ref<number | 'all'>('all')
 const searchQuery = ref('')
+const selectedType = ref<'all' | 'standard' | 'subscription' | 'exclusive'>('all')
+const sortBy = ref<'recommended' | 'name' | 'rate'>('recommended')
 
 const searchActive = computed(() => searchQuery.value.trim() !== '')
+const sourceGroups = computed(() => props.response?.groups ?? [])
+const groupCount = computed(() => sourceGroups.value.length)
+const modelCount = computed(() => sourceGroups.value.reduce((total, group) => total + group.models.length, 0))
+const platformCount = computed(() => new Set(sourceGroups.value.map((group) => group.platform).filter(Boolean)).size)
 
 const descriptionHtml = computed(() => {
   const md = props.response?.description?.trim()
@@ -98,30 +144,30 @@ const descriptionHtml = computed(() => {
   return DOMPurify.sanitize(marked.parse(md) as string)
 })
 
-/** 生效倍率 = 用户专属倍率 ?? 分组默认倍率。 */
+/** Effective rate is the user-specific rate when the backend supplied one. */
 function effectiveRate(g: ModelPlazaGroup): number {
   return g.user_rate_multiplier ?? g.rate_multiplier
 }
 
 const platforms = computed(() =>
-  [...new Set((props.response?.groups ?? []).map((g) => g.platform).filter(Boolean))].sort()
+  [...new Set(sourceGroups.value.map((g) => g.platform).filter(Boolean))].sort(),
 )
 
 const groupOptions = computed(() =>
-  (props.response?.groups ?? []).map((g) => ({
+  sourceGroups.value.map((g) => ({
     id: g.id,
     name: g.name,
     platform: g.platform,
-    rate: effectiveRate(g)
-  }))
+    rate: effectiveRate(g),
+    subscriptionType: g.subscription_type,
+    exclusive: g.is_exclusive,
+  })),
 )
 
-/** 全量生效倍率;当前组合下不可用的项由 FilterBar 置灰而非隐藏。 */
 const rates = computed(() =>
-  [...new Set((props.response?.groups ?? []).map(effectiveRate))].sort((a, b) => a - b)
+  [...new Set(sourceGroups.value.map(effectiveRate))].sort((a, b) => a - b),
 )
 
-/** 数据刷新后选中的倍率可能不复存在,重置为全部。 */
 watch(rates, (list) => {
   if (selectedRate.value !== 'all' && !list.includes(selectedRate.value)) {
     selectedRate.value = 'all'
@@ -129,7 +175,7 @@ watch(rates, (list) => {
 })
 
 const filteredGroups = computed(() => {
-  let groups = props.response?.groups ?? []
+  let groups = sourceGroups.value
   if (selectedPlatform.value !== 'all') {
     groups = groups.filter((g) => g.platform === selectedPlatform.value)
   }
@@ -139,18 +185,35 @@ const filteredGroups = computed(() => {
   if (selectedRate.value !== 'all') {
     groups = groups.filter((g) => effectiveRate(g) === selectedRate.value)
   }
-  // 模型名搜索:分组内只留命中的模型,整组无命中则隐藏该分组。
+  if (selectedType.value !== 'all') {
+    groups = groups.filter((g) =>
+      selectedType.value === 'exclusive' ? g.is_exclusive : g.subscription_type === selectedType.value,
+    )
+  }
+
+  // Search keeps an authorized group intact when its name/platform matches;
+  // otherwise it narrows only that group's already-authorized model list.
   const q = searchQuery.value.trim().toLowerCase()
   if (q) {
     groups = groups
-      .map((g) => ({ ...g, models: g.models.filter((m) => m.name.toLowerCase().includes(q)) }))
+      .map((g) => {
+        const groupHit = g.name.toLowerCase().includes(q) || g.platform.toLowerCase().includes(q)
+        return groupHit ? g : { ...g, models: g.models.filter((m) => m.name.toLowerCase().includes(q)) }
+      })
       .filter((g) => g.models.length > 0)
   }
-  // 专属倍率会改变生效值,不能只依赖后端按默认倍率的排序。
-  return [...groups].sort(
-    (a, b) => effectiveRate(a) - effectiveRate(b) || a.name.localeCompare(b.name)
-  )
+
+  return [...groups].sort((a, b) => {
+    if (sortBy.value === 'name') return a.name.localeCompare(b.name)
+    if (sortBy.value === 'rate') return effectiveRate(a) - effectiveRate(b) || a.name.localeCompare(b.name)
+    const exclusiveOrder = Number(b.is_exclusive) - Number(a.is_exclusive)
+    return exclusiveOrder || effectiveRate(a) - effectiveRate(b) || a.name.localeCompare(b.name)
+  })
 })
+
+const filteredModelCount = computed(() =>
+  filteredGroups.value.reduce((total, group) => total + group.models.length, 0),
+)
 </script>
 
 <style scoped>
@@ -191,5 +254,92 @@ const filteredGroups = computed(() => {
 
 .plaza-description :deep(blockquote) {
   @apply my-2 border-l-4 border-gray-300 pl-3 text-gray-600 dark:border-dark-600 dark:text-dark-300;
+}
+
+.plaza-hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 2rem;
+  border-bottom: 1px solid rgb(229 231 235 / 0.9);
+  padding-bottom: 1.25rem;
+}
+
+.plaza-hero-embedded {
+  padding-top: 0.25rem;
+}
+
+.plaza-stats {
+  display: flex;
+  flex-shrink: 0;
+  align-items: stretch;
+  overflow: hidden;
+  border: 1px solid rgb(229 231 235 / 0.9);
+  border-radius: 0.75rem;
+  background: rgb(255 255 255 / 0.75);
+}
+
+.plaza-stats div {
+  display: flex;
+  min-width: 5.5rem;
+  flex-direction: column;
+  gap: 0.15rem;
+  border-left: 1px solid rgb(229 231 235 / 0.9);
+  padding: 0.75rem 0.9rem;
+}
+
+.plaza-stats div:first-child {
+  border-left: 0;
+}
+
+.plaza-stats strong {
+  color: rgb(17 24 39);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 1.05rem;
+  line-height: 1.2;
+}
+
+.plaza-stats span {
+  color: rgb(107 114 128);
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
+.dark .plaza-hero {
+  border-color: rgb(55 65 81 / 0.8);
+}
+
+.dark .plaza-stats {
+  border-color: rgb(55 65 81 / 0.8);
+  background: rgb(31 41 55 / 0.5);
+}
+
+.dark .plaza-stats div {
+  border-color: rgb(55 65 81 / 0.8);
+}
+
+.dark .plaza-stats strong {
+  color: rgb(249 250 251);
+}
+
+.dark .plaza-stats span {
+  color: rgb(156 163 175);
+}
+
+@media (max-width: 640px) {
+  .plaza-hero {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .plaza-stats {
+    width: 100%;
+  }
+
+  .plaza-stats div {
+    flex: 1;
+    min-width: 0;
+  }
 }
 </style>

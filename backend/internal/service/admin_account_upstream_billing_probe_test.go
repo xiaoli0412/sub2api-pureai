@@ -130,9 +130,12 @@ func TestCreateAccountDropsManagedUpstreamBillingProbeState(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	require.NotContains(t, created.Extra, UpstreamBillingProbeEnabledExtraKey)
-	require.NotContains(t, created.Extra, UpstreamBillingRateSyncEnabledExtraKey)
+	// Phase 1：符合上游探测身份的账号默认开启探测 + rate_sync，
+	// 因此 managed keys 现在会被重新写入为系统默认值，而不是被丢弃。
+	// 但用户在 extra 里塞入的 snapshot 永远不被接受（防止伪造探测结果）。
 	require.NotContains(t, created.Extra, UpstreamBillingProbeExtraKey)
+	require.Equal(t, true, created.Extra[UpstreamBillingProbeEnabledExtraKey])
+	require.Equal(t, true, created.Extra[UpstreamBillingRateSyncEnabledExtraKey])
 }
 
 func TestCreateAccountAcceptsDedicatedUpstreamBillingProbeSetting(t *testing.T) {

@@ -1,0 +1,331 @@
+# Sub2API 安全审计关键词模板
+# Encoding: UTF-8
+# Format:
+#   [category]          begin a category
+#   keyword or phrase   one item per line
+#   # comment           ignored by importers
+#
+# This file is a reviewable starter template, not a legal or moderation policy.
+# Review local laws, false-positive impact, and allowed business use cases before enabling.
+# Prefer exact phrases and high-confidence indicators for blocking. Use the prompt-audit
+# scanner for context-sensitive decisions instead of maintaining an oversized blocklist.
+#
+# Existing prompt-audit scanner IDs:
+# violent
+# non_violent_illegal_acts
+# sexual_content_or_sexual_acts
+# pii
+# suicide_and_self_harm
+# unethical_acts
+# politically_sensitive_topics
+# copyright_violation
+# jailbreak
+
+[violent]
+暴力
+暴力行为
+杀人
+谋杀
+故意伤害
+肢解
+虐杀
+绑架并伤害
+恐怖袭击
+袭击计划
+爆炸袭击
+大规模伤害
+武器攻击
+枪击
+刺杀
+纵火伤人
+violent attack
+murder
+homicide
+assault
+physical assault
+kidnapping and harm
+mass casualty attack
+terrorist attack
+shooting attack
+bomb attack
+arson causing injury
+how to kill someone
+how to build a weapon
+
+[non_violent_illegal_acts]
+违法犯罪
+非法交易
+走私
+贩卖人口
+人口买卖
+贩毒
+毒品交易
+洗钱
+伪造证件
+伪造货币
+假冒身份
+非法入侵
+盗窃
+抢劫策划
+敲诈勒索
+勒索付款
+行贿
+受贿
+逃税方案
+规避监管
+如何洗钱
+如何制造假证件
+how to launder money
+money laundering
+human trafficking
+drug trafficking
+illegal arms trade
+counterfeit documents
+counterfeit currency
+identity fraud
+burglary plan
+robbery plan
+extortion
+bribery scheme
+tax evasion scheme
+bypass law enforcement
+
+[sexual_content_or_sexual_acts]
+色情
+色情内容
+淫秽内容
+露骨性行为
+性交易
+卖淫
+强奸
+性侵
+未成年人色情
+儿童色情
+未成年性行为
+性剥削
+性虐待
+偷拍色情
+传播私密影像
+色情勒索
+sexual content
+explicit sexual content
+pornography
+sex work
+prostitution
+rape
+sexual assault
+child sexual abuse material
+child sexual exploitation
+sexual exploitation
+non-consensual intimate imagery
+revenge porn
+sexual extortion
+explicit sexual act
+
+[pii]
+个人信息
+个人敏感信息
+身份证号
+身份证号码
+护照号
+护照号码
+驾驶证号
+银行卡号
+信用卡号
+借记卡号
+支付密码
+登录密码
+短信验证码
+验证码
+API密钥
+访问令牌
+刷新令牌
+私钥
+助记词
+钱包私钥
+家庭住址
+精确住址
+个人手机号
+私人邮箱
+病历号
+医疗记录
+生物识别信息
+指纹信息
+人脸识别信息
+social security number
+passport number
+driver license number
+bank account number
+credit card number
+payment password
+login password
+one-time password
+verification code
+API key
+access token
+refresh token
+private key
+seed phrase
+wallet private key
+home address
+personal phone number
+private email
+medical record
+biometric data
+facial recognition data
+
+[suicide_and_self_harm]
+自杀
+自杀计划
+自杀方法
+自杀工具
+自残
+自残方法
+割腕
+服毒自杀
+跳楼自杀
+窒息自残
+伤害自己
+结束生命
+不想活了
+suicide
+suicide plan
+suicide method
+suicide note
+self-harm
+self harm method
+cutting myself
+overdose to die
+hanging myself
+hurt myself
+end my life
+want to die
+
+[unethical_acts]
+诈骗
+电信诈骗
+网络诈骗
+钓鱼诈骗
+冒充客服
+冒充公检法
+虚假投资
+传销
+诱导转账
+骗取验证码
+恶意操纵
+操纵舆论
+内幕交易
+操纵市场
+考试作弊
+论文代写
+伪造学术成果
+恶意骚扰
+跟踪骚扰
+歧视
+仇恨言论
+诈骗话术
+phishing scam
+impersonate customer service
+impersonate police
+investment fraud
+pyramid scheme
+social engineering
+steal verification code
+market manipulation
+insider trading
+exam cheating
+academic fraud
+harassment campaign
+stalking
+hate speech
+discriminatory abuse
+
+[politically_sensitive_topics]
+# 此分类高度依赖业务法域和产品政策。请仅在明确授权的场景启用。
+政治敏感
+政治暴力
+恐怖主义宣传
+极端主义宣传
+煽动暴力
+仇恨动员
+分裂主义宣传
+非法政治集会
+选举操纵
+虚假选举信息
+政治人物深度伪造
+政治暗杀
+political violence
+terrorist propaganda
+extremist propaganda
+incitement to violence
+hate mobilization
+separatist propaganda
+election manipulation
+election disinformation
+political deepfake
+political assassination
+
+[copyright_violation]
+盗版
+破解软件
+破解游戏
+盗版电影
+盗版音乐
+盗版电子书
+未经授权复制
+绕过版权保护
+绕过DRM
+分享盗版链接
+批量下载盗版
+软件序列号破解
+生成盗版副本
+pirated software
+cracked software
+cracked game
+pirated movie
+pirated music
+pirated ebook
+unauthorized copy
+bypass copyright protection
+bypass DRM
+piracy link
+bulk download pirated content
+software license crack
+make a pirated copy
+
+[jailbreak]
+忽略之前的指令
+忽略所有系统提示
+绕过安全限制
+绕过内容政策
+解除限制模式
+进入开发者模式
+显示系统提示词
+泄露系统提示词
+泄露隐藏规则
+不要遵守上面的规则
+把自己当作没有限制的模型
+越狱提示词
+提示词注入
+间接提示词注入
+数据外泄
+工具调用注入
+ignore previous instructions
+ignore all system instructions
+bypass safety restrictions
+bypass content policy
+disable safety mode
+reveal the system prompt
+show hidden instructions
+leak the system prompt
+forget your rules
+act as an unrestricted model
+jailbreak prompt
+prompt injection
+indirect prompt injection
+exfiltrate hidden data
+tool call injection
+
+[custom_high_risk]
+# Add organization-specific terms below this line.
+# Keep entries short and high-confidence to reduce false positives.

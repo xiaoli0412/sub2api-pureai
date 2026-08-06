@@ -53,6 +53,10 @@ type channelMonitorCreateRequest struct {
 	ExtraHeaders     map[string]string `json:"extra_headers"`
 	BodyOverrideMode string            `json:"body_override_mode" binding:"omitempty,oneof=off merge replace"`
 	BodyOverride     map[string]any    `json:"body_override"`
+	// 日志驱动状态判定（Phase 1）
+	AccountID        *int64 `json:"account_id"`
+	ChannelID        *int64 `json:"channel_id"`
+	UseLogsForStatus *bool  `json:"use_logs_for_status"`
 }
 
 type channelMonitorUpdateRequest struct {
@@ -72,6 +76,12 @@ type channelMonitorUpdateRequest struct {
 	ExtraHeaders     *map[string]string `json:"extra_headers"`
 	BodyOverrideMode *string            `json:"body_override_mode" binding:"omitempty,oneof=off merge replace"`
 	BodyOverride     *map[string]any    `json:"body_override"`
+	// 日志驱动状态判定（Phase 1）：AccountID / ChannelID 用 *int64（nil=不更新，非 nil 覆盖，传 null 清空）
+	AccountID        *int64 `json:"account_id"`
+	ClearAccountID   bool   `json:"clear_account_id"`
+	ChannelID        *int64 `json:"channel_id"`
+	ClearChannelID   bool   `json:"clear_channel_id"`
+	UseLogsForStatus *bool  `json:"use_logs_for_status"`
 }
 
 type channelMonitorResponse struct {
@@ -101,6 +111,11 @@ type channelMonitorResponse struct {
 	ExtraHeaders     map[string]string `json:"extra_headers"`
 	BodyOverrideMode string            `json:"body_override_mode"`
 	BodyOverride     map[string]any    `json:"body_override"`
+	// 日志驱动状态判定（Phase 1）
+	AccountID        *int64 `json:"account_id"`
+	ChannelID        *int64 `json:"channel_id"`
+	UseLogsForStatus bool   `json:"use_logs_for_status"`
+	StatusSource     string `json:"status_source"`
 }
 
 type channelMonitorCheckResultResponse struct {
@@ -163,6 +178,10 @@ func channelMonitorToResponse(m *service.ChannelMonitor) *channelMonitorResponse
 		ExtraHeaders:        headers,
 		BodyOverrideMode:    m.BodyOverrideMode,
 		BodyOverride:        m.BodyOverride,
+		AccountID:           m.AccountID,
+		ChannelID:           m.ChannelID,
+		UseLogsForStatus:    m.UseLogsForStatus,
+		StatusSource:        m.StatusSource,
 		// PrimaryStatus / PrimaryLatencyMs / Availability7d 由 List handler 在批量聚合后填充。
 	}
 	if m.LastCheckedAt != nil {
@@ -253,15 +272,7 @@ func (h *ChannelMonitorHandler) List(c *gin.Context) {
 
 // batchSummaryFor 批量聚合 latest + 7d 可用率，避免每行 2 次 SQL（消除 N+1）。
 func (h *ChannelMonitorHandler) batchSummaryFor(c *gin.Context, items []*service.ChannelMonitor) map[int64]service.MonitorStatusSummary {
-	ids := make([]int64, 0, len(items))
-	primaryByID := make(map[int64]string, len(items))
-	extrasByID := make(map[int64][]string, len(items))
-	for _, m := range items {
-		ids = append(ids, m.ID)
-		primaryByID[m.ID] = m.PrimaryModel
-		extrasByID[m.ID] = m.ExtraModels
-	}
-	return h.monitorService.BatchMonitorStatusSummary(c.Request.Context(), ids, primaryByID, extrasByID)
+	return h.monitorService.BatchMonitorStatusSummary(c.Request.Context(), items)
 }
 
 // buildListItemResponse 把 monitor + summary 装成 admin list 的响应行。
@@ -271,6 +282,10 @@ func buildListItemResponse(m *service.ChannelMonitor, summary service.MonitorSta
 	resp.PrimaryLatencyMs = summary.PrimaryLatencyMs
 	resp.Availability7d = summary.Availability7d
 	resp.ExtraModelsStatus = make([]dto.ChannelMonitorExtraModelStatus, 0, len(summary.ExtraModels))
+	// 日志驱动状态时覆盖 status_source，让前端能区分状态来源。
+	if summary.StatusSource != "" {
+		resp.StatusSource = summary.StatusSource
+	}
 	for _, e := range summary.ExtraModels {
 		resp.ExtraModelsStatus = append(resp.ExtraModelsStatus, dto.ChannelMonitorExtraModelStatus{
 			Model:     e.Model,
@@ -327,6 +342,9 @@ func (h *ChannelMonitorHandler) Create(c *gin.Context) {
 		ExtraHeaders:     req.ExtraHeaders,
 		BodyOverrideMode: req.BodyOverrideMode,
 		BodyOverride:     req.BodyOverride,
+		AccountID:        req.AccountID,
+		ChannelID:        req.ChannelID,
+		UseLogsForStatus: req.UseLogsForStatus,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -421,6 +439,9 @@ func (h *ChannelMonitorHandler) Update(c *gin.Context) {
 		ExtraHeaders:     req.ExtraHeaders,
 		BodyOverrideMode: req.BodyOverrideMode,
 		BodyOverride:     req.BodyOverride,
+		AccountID:        buildInt64PointerUpdateParam(req.AccountID, req.ClearAccountID),
+		ChannelID:        buildInt64PointerUpdateParam(req.ChannelID, req.ClearChannelID),
+		UseLogsForStatus: req.UseLogsForStatus,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)

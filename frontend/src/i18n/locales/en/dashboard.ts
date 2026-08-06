@@ -486,7 +486,11 @@ export default {
   availableChannels: {
     title: 'Available Channels',
     description: 'Channels you can access, along with their supported models and pricing',
+    kicker: 'Access directory',
+    resultCount: 'visible channels',
     searchPlaceholder: 'Search channels or models...',
+    clearFilters: 'Clear filters',
+    noFilterResults: 'No channels match these filters',
     empty: 'No available channels',
     noModels: 'No models configured',
     noPricing: 'Pricing not configured',
@@ -494,6 +498,12 @@ export default {
     public: 'Public',
     exclusiveTooltip: 'Exclusive groups granted to you by an admin',
     publicTooltip: 'Groups open to all users',
+    filters: {
+      all: 'All',
+      platform: 'Platform',
+      group: 'Group',
+      model: 'Model'
+    },
     columns: {
       name: 'Channel',
       description: 'Description',
@@ -523,18 +533,35 @@ export default {
   // Model Plaza (public group/model pricing showcase)
   modelPlaza: {
     title: 'Model Plaza',
+    kicker: 'Model directory',
     description: 'Browse available models and pricing by group',
     loading: 'Loading...',
     empty: 'No groups to display',
     loadFailed: 'Failed to load model plaza',
     noSearchResult: 'No matching models',
+    results: '{groups} groups · {models} models',
+    searchingFor: 'Search: {query}',
+    stats: {
+      groups: 'groups',
+      models: 'models',
+      platforms: 'platforms'
+    },
     anonymousHint: 'Sign in to see your exclusive groups and personal rates',
     filters: {
       platformLabel: 'Platform',
       groupLabel: 'Group',
       rateLabel: 'Rate',
+      typeLabel: 'Type',
+      sortLabel: 'Sort',
+      standard: 'Standard',
+      subscription: 'Subscription',
+      exclusive: 'Exclusive',
+      sortRecommended: 'Recommended',
+      sortName: 'Name',
+      sortRate: 'Rate',
+      clearSearch: 'Clear search',
       modelLabel: 'Model',
-      searchPlaceholder: 'Search models',
+      searchPlaceholder: 'Search models, groups, or platforms',
       all: 'All'
     },
     badges: {

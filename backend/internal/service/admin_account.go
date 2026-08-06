@@ -473,7 +473,15 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		Status:      StatusActive,
 		Schedulable: true,
 	}
-	if input.ProbeEnabled != nil && *input.ProbeEnabled {
+	// 默认开启上游倍率探测与价格计算同步：当账号身份支持 /v1/sub2api/billing 时，
+	// 创建即默认开启探测 + rate_sync，确保后续成本/利润计算能落地。
+	// 管理员可在创建表单显式关闭（ProbeEnabled = false）。
+	// 上游不支持（非 api_key 或不在白名单平台）时不写入开关，前端引导手动配置倍率。
+	probeEnabledByDefault := isUpstreamBillingProbeAccount(account)
+	if input.ProbeEnabled != nil {
+		probeEnabledByDefault = *input.ProbeEnabled
+	}
+	if probeEnabledByDefault {
 		if !isUpstreamBillingProbeAccount(account) {
 			return nil, ErrUpstreamBillingProbeAccountInvalid
 		}
@@ -481,6 +489,8 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 			account.Extra = make(map[string]any)
 		}
 		account.Extra[UpstreamBillingProbeEnabledExtraKey] = true
+		// 默认同时开启 rate sync；管理员可后续单独关闭。
+		account.Extra[UpstreamBillingRateSyncEnabledExtraKey] = true
 	}
 	// 预计算固定时间重置的下次重置时间
 	if account.Extra != nil {

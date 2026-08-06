@@ -732,6 +732,8 @@ var ProviderSet = wire.NewSet(
 	ProvideAuthService,
 	NewPasskeyService,
 	NewUserService,
+	NewAstrBotTokenService,
+	NewAstrBotOperationService,
 	ProvideAPIKeyService,
 	ProvideAPIKeyAuthCacheInvalidator,
 	ProvideAuthCacheInvalidationWorker,
@@ -883,11 +885,19 @@ func ProvidePaymentOrderExpiryService(paymentSvc *PaymentService, lockCache Lead
 
 // ProvideChannelMonitorService 创建渠道监控服务（CRUD + RunCheck + 用户视图聚合）。
 // 加密器复用 wire 中已注入的 SecretEncryptor（AES-256-GCM）。
+// usageLogRepo 注入后，监控可优先按真实请求日志判定状态；未注入时回退探测。
 func ProvideChannelMonitorService(
 	repo ChannelMonitorRepository,
 	encryptor SecretEncryptor,
+	usageLogRepo UsageLogRepository,
 ) *ChannelMonitorService {
-	return NewChannelMonitorService(repo, encryptor)
+	svc := NewChannelMonitorService(repo, encryptor)
+	// UsageLogRepository 实现 channelMonitorLogStatusReader（GetChannelMonitorLogStatusBatch），
+	// 类型断言注入；不满足时跳过日志聚合，状态回退探测。
+	if reader, ok := any(usageLogRepo).(channelMonitorLogStatusReader); ok {
+		svc.SetUsageLogReader(reader)
+	}
+	return svc
 }
 
 // ProvideChannelMonitorRunner 创建并启动渠道监控调度器。

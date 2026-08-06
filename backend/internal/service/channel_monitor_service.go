@@ -68,6 +68,9 @@ type ChannelMonitorService struct {
 	// scheduler 由 wire 通过 SetScheduler 注入；CRUD 后调用对应钩子即时同步任务。
 	// 测试或未注入场景下保持 nil，所有钩子调用变为 no-op。
 	scheduler MonitorScheduler
+	// usageLogReader 由 wire 通过 SetUsageLogReader 注入；用于基于真实请求日志的状态判定。
+	// 未注入（测试 / 旧路径）时所有日志聚合调用变为 no-op，状态回退到探测。
+	usageLogReader channelMonitorLogStatusReader
 }
 
 const maxChannelMonitorNameRunes = 100
@@ -129,6 +132,10 @@ func (s *ChannelMonitorService) Create(ctx context.Context, p ChannelMonitorCrea
 	if err != nil {
 		return nil, fmt.Errorf("encrypt api key: %w", err)
 	}
+	useLogs := true
+	if p.UseLogsForStatus != nil {
+		useLogs = *p.UseLogsForStatus
+	}
 	m := &ChannelMonitor{
 		Name:             strings.TrimSpace(p.Name),
 		Provider:         p.Provider,
@@ -146,6 +153,10 @@ func (s *ChannelMonitorService) Create(ctx context.Context, p ChannelMonitorCrea
 		ExtraHeaders:     emptyHeadersIfNil(p.ExtraHeaders),
 		BodyOverrideMode: defaultBodyMode(p.BodyOverrideMode),
 		BodyOverride:     p.BodyOverride,
+		AccountID:        cloneInt64Pointer(p.AccountID),
+		ChannelID:        cloneInt64Pointer(p.ChannelID),
+		UseLogsForStatus: useLogs,
+		StatusSource:     MonitorStatusSourceProbe,
 	}
 	if err := s.repo.Create(ctx, m); err != nil {
 		return nil, fmt.Errorf("create channel monitor: %w", err)
@@ -507,6 +518,13 @@ func (s *ChannelMonitorService) SetScheduler(sched MonitorScheduler) {
 	s.scheduler = sched
 }
 
+// SetUsageLogReader 由 wire 注入 UsageLogRepository（类型断言为 channelMonitorLogStatusReader）。
+// 注入后渠道监控可优先按真实请求日志判定状态；未注入时回退探测。
+// 接收 interface 而非具体 repository 类型，避免 service ↔ repository 的依赖环。
+func (s *ChannelMonitorService) SetUsageLogReader(reader channelMonitorLogStatusReader) {
+	s.usageLogReader = reader
+}
+
 // ListEnabledMonitors 返回所有 enabled=true 的监控（解密后），供 runner 启动时建立任务表。
 func (s *ChannelMonitorService) ListEnabledMonitors(ctx context.Context) ([]*ChannelMonitor, error) {
 	all, err := s.repo.ListEnabled(ctx)
@@ -697,6 +715,26 @@ func applyMonitorUpdate(existing *ChannelMonitor, p ChannelMonitorUpdateParams) 
 		if err := validateJitter(existing.JitterSeconds, existing.IntervalSeconds); err != nil {
 			return err
 		}
+	}
+	// 日志驱动状态判定字段：AccountID / ChannelID 用 **int64 表达三态，UseLogsForStatus 用 *bool。
+	if p.AccountID != nil {
+		if *p.AccountID == nil {
+			existing.AccountID = nil
+		} else {
+			id := **p.AccountID
+			existing.AccountID = &id
+		}
+	}
+	if p.ChannelID != nil {
+		if *p.ChannelID == nil {
+			existing.ChannelID = nil
+		} else {
+			id := **p.ChannelID
+			existing.ChannelID = &id
+		}
+	}
+	if p.UseLogsForStatus != nil {
+		existing.UseLogsForStatus = *p.UseLogsForStatus
 	}
 	return applyMonitorAdvancedUpdate(existing, p, providerChanged)
 }

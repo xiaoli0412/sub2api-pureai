@@ -71,6 +71,27 @@ func (ChannelMonitor) Fields() []ent.Field {
 			Nillable(),
 		field.Int64("created_by"),
 
+		// ---- 日志驱动状态判定（Phase 1） ----
+		// account_id / channel_id: 把监控与真实账号/路由渠道关联。
+		// 关联存在且最近有请求日志时，优先按日志计算状态，否则回退到探测心跳。
+		field.Int64("account_id").
+			Optional().
+			Nillable().
+			Comment("关联账号 ID，用于读取真实请求日志计算状态"),
+		field.Int64("channel_id").
+			Optional().
+			Nillable().
+			Comment("关联路由渠道 ID，用于读取真实请求日志计算状态"),
+		// use_logs_for_status: 单监控开关，true 时优先用日志，false 强制探测。
+		field.Bool("use_logs_for_status").
+			Default(true).
+			Comment("优先按真实请求日志判定状态；日志不足时回退探测"),
+		// status_source: 记录当前展示状态来自 logs 还是 probe（运行期填）。
+		field.String("status_source").
+			Default("probe").
+			MaxLen(20).
+			Comment("当前状态来源：logs / probe"),
+
 		// ---- 自定义请求快照字段（来自模板 / 手动编辑） ----
 
 		// template_id: 关联的请求模板 ID（仅用于 UI 分组 + 一键应用）。
@@ -115,5 +136,7 @@ func (ChannelMonitor) Indexes() []ent.Index {
 		index.Fields("provider", "api_mode"),
 		index.Fields("group_name"),
 		index.Fields("template_id"),
+		index.Fields("account_id"),
+		index.Fields("channel_id"),
 	}
 }

@@ -445,6 +445,18 @@ func lookupMappingAcrossPlatforms(cache *channelCache, groupID int64, groupPlatf
 	return ""
 }
 
+// RefreshCache forces a synchronous rebuild of the channel routing cache.
+func (s *ChannelService) RefreshCache(ctx context.Context) error {
+	if s == nil {
+		return nil
+	}
+	_, err := s.buildCache(ctx)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // GetChannelForGroup 获取分组关联的渠道（热路径 O(1)）
 func (s *ChannelService) GetChannelForGroup(ctx context.Context, groupID int64) (*Channel, error) {
 	cache, err := s.loadCache(ctx)

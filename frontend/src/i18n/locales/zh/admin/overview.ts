@@ -131,6 +131,7 @@ export default {
         title: '备份记录',
         description: '创建手动备份和管理已有备份记录',
         createBackup: '创建备份',
+        createLocalBackup: '创建本地备份',
         backing: '备份中...',
         backupCreated: '备份创建成功',
         expireDays: '过期天数',

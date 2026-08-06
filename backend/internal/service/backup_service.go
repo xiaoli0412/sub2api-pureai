@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -27,15 +29,21 @@ const (
 	settingKeyBackupRecords  = "backup_records"
 
 	maxBackupRecords = 100
+
+	// DefaultLocalBackupDir 本地备份默认根目录。容器内挂载到宿主机即可跨重启保留。
+	DefaultLocalBackupDir = "data/backups"
 )
 
 var (
-	ErrBackupS3NotConfigured = infraerrors.BadRequest("BACKUP_S3_NOT_CONFIGURED", "backup S3 storage is not configured")
-	ErrBackupNotFound        = infraerrors.NotFound("BACKUP_NOT_FOUND", "backup record not found")
-	ErrBackupInProgress      = infraerrors.Conflict("BACKUP_IN_PROGRESS", "a backup is already in progress")
-	ErrRestoreInProgress     = infraerrors.Conflict("RESTORE_IN_PROGRESS", "a restore is already in progress")
-	ErrBackupRecordsCorrupt  = infraerrors.InternalServer("BACKUP_RECORDS_CORRUPT", "backup records data is corrupted")
-	ErrBackupS3ConfigCorrupt = infraerrors.InternalServer("BACKUP_S3_CONFIG_CORRUPT", "backup S3 config data is corrupted")
+	ErrBackupS3NotConfigured  = infraerrors.BadRequest("BACKUP_S3_NOT_CONFIGURED", "backup S3 storage is not configured")
+	ErrBackupNotFound         = infraerrors.NotFound("BACKUP_NOT_FOUND", "backup record not found")
+	ErrBackupInProgress       = infraerrors.Conflict("BACKUP_IN_PROGRESS", "a backup is already in progress")
+	ErrRestoreInProgress      = infraerrors.Conflict("RESTORE_IN_PROGRESS", "a restore is already in progress")
+	ErrBackupRecordsCorrupt   = infraerrors.InternalServer("BACKUP_RECORDS_CORRUPT", "backup records data is corrupted")
+	ErrBackupS3ConfigCorrupt  = infraerrors.InternalServer("BACKUP_S3_CONFIG_CORRUPT", "backup S3 config data is corrupted")
+	ErrLocalBackupPathInvalid = infraerrors.BadRequest("LOCAL_BACKUP_PATH_INVALID", "local backup path is outside the allowed directory")
+	ErrBackupNotCompleted     = infraerrors.BadRequest("BACKUP_NOT_COMPLETED", "backup is not completed")
+	ErrLocalBackupCorrupt     = infraerrors.BadRequest("LOCAL_BACKUP_CORRUPT", "local backup file is not a valid gzip archive")
 
 	// ErrSecretEncryptionKeyNotConfigured is returned when an S3 SecretAccessKey
 	// would be encrypted with an auto-generated (ephemeral) key. That key is
@@ -113,7 +121,18 @@ type BackupRecord struct {
 	RestoreStatus string `json:"restore_status,omitempty"` // "", "running", "completed", "failed"
 	RestoreError  string `json:"restore_error,omitempty"`
 	RestoredAt    string `json:"restored_at,omitempty"`
+	// StorageType 标识备份存储位置：s3（对象存储）/ local（本地磁盘）。
+	// 空字符串等价于 s3，兼容迁移前记录。
+	StorageType string `json:"storage_type,omitempty"`
+	// LocalPath 本地备份文件的绝对路径，仅 StorageType=local 时有效。
+	LocalPath string `json:"local_path,omitempty"`
 }
+
+// backupStorageType 常量。
+const (
+	BackupStorageTypeS3    = "s3"
+	BackupStorageTypeLocal = "local"
+)
 
 // BackupService 数据库备份恢复服务
 type BackupService struct {
@@ -460,7 +479,7 @@ func (s *BackupService) CreateBackup(ctx context.Context, triggeredBy string, ex
 	}
 
 	s.opMu.Lock()
-	if s.backingUp {
+	if s.backingUp || s.restoring {
 		s.opMu.Unlock()
 		return nil, ErrBackupInProgress
 	}
@@ -577,7 +596,7 @@ func (s *BackupService) StartBackup(ctx context.Context, triggeredBy string, exp
 	}
 
 	s.opMu.Lock()
-	if s.backingUp {
+	if s.backingUp || s.restoring {
 		s.opMu.Unlock()
 		return nil, ErrBackupInProgress
 	}
@@ -662,6 +681,436 @@ func (s *BackupService) StartBackup(ctx context.Context, triggeredBy string, exp
 	return &result, nil
 }
 
+// localBackupRoot returns the canonical local backup root. The root is created
+// before resolving symlinks so containment checks also work on a fresh install.
+func localBackupRoot() (string, error) {
+	root, err := filepath.Abs(DefaultLocalBackupDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve local backup root: %w", err)
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return "", fmt.Errorf("create local backup root: %w", err)
+	}
+	resolved, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve local backup root symlinks: %w", err)
+	}
+	return filepath.Clean(resolved), nil
+}
+
+func pathWithin(root, path string, allowRoot bool) bool {
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == "." && !allowRoot {
+		return false
+	}
+	return rel == "." || (rel != "" && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel))
+}
+
+// normalizeLocalBackupDir canonicalizes and validates a requested directory.
+// Only the default root and its descendants are allowed.
+func normalizeLocalBackupDir(localDir string) (string, error) {
+	root, err := localBackupRoot()
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(localDir) == "" {
+		return root, nil
+	}
+	dir, err := filepath.Abs(localDir)
+	if err != nil {
+		return "", ErrLocalBackupPathInvalid
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("create local backup dir: %w", err)
+	}
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", ErrLocalBackupPathInvalid
+	}
+	resolved = filepath.Clean(resolved)
+	if !pathWithin(root, resolved, true) {
+		return "", ErrLocalBackupPathInvalid
+	}
+	return resolved, nil
+}
+
+func canonicalLocalBackupPath(path string) (string, error) {
+	root, err := localBackupRoot()
+	if err != nil {
+		return "", err
+	}
+	abs, err := filepath.Abs(strings.TrimSpace(path))
+	if err != nil || strings.TrimSpace(path) == "" {
+		return "", ErrLocalBackupPathInvalid
+	}
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", ErrLocalBackupPathInvalid
+	}
+	resolved = filepath.Clean(resolved)
+	if !pathWithin(root, resolved, false) {
+		return "", ErrLocalBackupPathInvalid
+	}
+	return resolved, nil
+}
+
+// safeLocalBackupPathForDelete validates a local path even when the file was
+// already removed. Existing symlinks are resolved before containment is checked.
+func safeLocalBackupPathForDelete(path string) (string, error) {
+	root, err := localBackupRoot()
+	if err != nil {
+		return "", err
+	}
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return "", ErrLocalBackupPathInvalid
+	}
+	abs, err := filepath.Abs(trimmed)
+	if err != nil {
+		return "", ErrLocalBackupPathInvalid
+	}
+	abs = filepath.Clean(abs)
+	if resolved, resolveErr := filepath.EvalSymlinks(abs); resolveErr == nil {
+		resolved = filepath.Clean(resolved)
+		if !pathWithin(root, resolved, false) {
+			return "", ErrLocalBackupPathInvalid
+		}
+		return resolved, nil
+	}
+	parent, err := filepath.EvalSymlinks(filepath.Dir(abs))
+	if err != nil {
+		return "", ErrLocalBackupPathInvalid
+	}
+	resolved := filepath.Join(filepath.Clean(parent), filepath.Base(abs))
+	if !pathWithin(root, resolved, false) {
+		return "", ErrLocalBackupPathInvalid
+	}
+	return resolved, nil
+}
+
+func validateLocalBackupFile(path string) error {
+	file, err := os.Open(path) //nolint:gosec // path is canonicalized by the service
+	if err != nil {
+		return err
+	}
+	defer func() { _ = file.Close() }()
+	reader, err := gzip.NewReader(file)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(io.Discard, reader)
+	closeErr := reader.Close()
+	if copyErr != nil {
+		return copyErr
+	}
+	return closeErr
+}
+
+// StartLocalBackup 创建一个本地备份：pg_dump -> gzip -> 本地磁盘文件。
+// 与 StartBackup（S3）互斥，共享同一个 backingUp 标志。
+// localDir 为本地备份根目录（如 data/backups）；为空时用默认值。
+func (s *BackupService) StartLocalBackup(ctx context.Context, triggeredBy string, expireDays int, localDir string) (*BackupRecord, error) {
+	if s.shuttingDown.Load() {
+		return nil, infraerrors.ServiceUnavailable("SERVER_SHUTTING_DOWN", "server is shutting down")
+	}
+
+	s.opMu.Lock()
+	if s.backingUp || s.restoring {
+		s.opMu.Unlock()
+		return nil, ErrBackupInProgress
+	}
+	s.backingUp = true
+	s.opMu.Unlock()
+
+	launched := false
+	defer func() {
+		if !launched {
+			s.opMu.Lock()
+			s.backingUp = false
+			s.opMu.Unlock()
+		}
+	}()
+
+	localDir, err := normalizeLocalBackupDir(localDir)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	backupID := uuid.New().String()[:8]
+	fileName := fmt.Sprintf("%s_%s_%s.sql.gz", s.dbCfg.DBName, now.Format("20060102_150405"), backupID)
+	localPath := filepath.Join(localDir, fileName)
+
+	var expiresAt string
+	if expireDays > 0 {
+		expiresAt = now.AddDate(0, 0, expireDays).Format(time.RFC3339)
+	}
+
+	record := &BackupRecord{
+		ID:          backupID,
+		Status:      "running",
+		BackupType:  "postgres",
+		FileName:    fileName,
+		TriggeredBy: triggeredBy,
+		StartedAt:   now.Format(time.RFC3339),
+		ExpiresAt:   expiresAt,
+		Progress:    "pending",
+		StorageType: BackupStorageTypeLocal,
+		LocalPath:   localPath,
+	}
+
+	if err := s.saveRecord(ctx, record); err != nil {
+		return nil, fmt.Errorf("save initial record: %w", err)
+	}
+
+	launched = true
+	result := *record
+
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		defer func() {
+			s.opMu.Lock()
+			s.backingUp = false
+			s.opMu.Unlock()
+		}()
+		defer func() {
+			if r := recover(); r != nil {
+				logger.LegacyPrintf("service.backup", "[Backup] panic recovered: %v", r)
+				record.Status = "failed"
+				record.ErrorMsg = fmt.Sprintf("internal panic: %v", r)
+				record.Progress = ""
+				record.FinishedAt = time.Now().Format(time.RFC3339)
+				_ = s.saveRecord(context.Background(), record)
+			}
+		}()
+		s.executeLocalBackup(record, localPath)
+	}()
+
+	return &result, nil
+}
+
+// executeLocalBackup 后台执行本地备份（独立于 HTTP context）。
+func (s *BackupService) executeLocalBackup(record *BackupRecord, localPath string) {
+	ctx, cancel := context.WithTimeout(s.bgCtx, 30*time.Minute)
+	defer cancel()
+
+	record.Progress = "dumping"
+	_ = s.saveRecord(ctx, record)
+
+	dumpReader, err := s.dumper.Dump(ctx)
+	if err != nil {
+		record.Status = "failed"
+		record.ErrorMsg = fmt.Sprintf("pg_dump failed: %v", err)
+		record.Progress = ""
+		record.FinishedAt = time.Now().Format(time.RFC3339)
+		_ = s.saveRecord(context.Background(), record)
+		return
+	}
+
+	record.Progress = "writing"
+	_ = s.saveRecord(ctx, record)
+
+	outPath := localPath + ".tmp"
+	out, err := os.OpenFile(outPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) //nolint:gosec // path is canonicalized by service
+	if err != nil {
+		_ = dumpReader.Close()
+		record.Status = "failed"
+		record.ErrorMsg = fmt.Sprintf("create local file failed: %v", err)
+		record.Progress = ""
+		record.FinishedAt = time.Now().Format(time.RFC3339)
+		_ = s.saveRecord(context.Background(), record)
+		return
+	}
+
+	gzWriter := gzip.NewWriter(out)
+	_, copyErr := io.Copy(gzWriter, dumpReader)
+	closeErr := gzWriter.Close()
+	fileCloseErr := out.Close()
+	_ = dumpReader.Close()
+	if copyErr != nil || closeErr != nil || fileCloseErr != nil {
+		_ = os.Remove(outPath)
+		record.Status = "failed"
+		record.ErrorMsg = fmt.Sprintf("gzip/dump failed: %v", firstError(copyErr, closeErr, fileCloseErr))
+		record.Progress = ""
+		record.FinishedAt = time.Now().Format(time.RFC3339)
+		_ = s.saveRecord(context.Background(), record)
+		return
+	}
+	if err := os.Rename(outPath, localPath); err != nil {
+		_ = os.Remove(outPath)
+		record.Status = "failed"
+		record.ErrorMsg = fmt.Sprintf("finalize local file failed: %v", err)
+		record.Progress = ""
+		record.FinishedAt = time.Now().Format(time.RFC3339)
+		_ = s.saveRecord(context.Background(), record)
+		return
+	}
+
+	stat, statErr := os.Stat(localPath)
+	sizeBytes := int64(0)
+	if statErr == nil {
+		sizeBytes = stat.Size()
+	}
+	record.Status = "completed"
+	record.SizeBytes = sizeBytes
+	record.Progress = ""
+	record.FinishedAt = time.Now().Format(time.RFC3339)
+	_ = s.saveRecord(context.Background(), record)
+}
+
+func firstError(errs ...error) error {
+	for _, err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// GetLocalBackupPath 返回本地备份文件的绝对路径。
+// 仅 StorageType=local 且文件存在时返回路径；否则报错。
+func (s *BackupService) GetLocalBackupPath(ctx context.Context, backupID string) (string, error) {
+	record, err := s.GetBackupRecord(ctx, backupID)
+	if err != nil {
+		return "", err
+	}
+	if record.Status != "completed" {
+		return "", ErrBackupNotCompleted
+	}
+	path, err := canonicalLocalBackupPath(record.LocalPath)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return "", infraerrors.NotFound("BACKUP_FILE_MISSING", "local backup file is missing on disk")
+	}
+	if err := validateLocalBackupFile(path); err != nil {
+		return "", ErrLocalBackupCorrupt
+	}
+	return path, nil
+}
+
+// RestoreLocalBackup 从本地备份文件恢复数据库（流式：文件 -> gunzip -> psql）。
+func (s *BackupService) RestoreLocalBackup(ctx context.Context, backupID string) (*BackupRecord, error) {
+	return s.StartLocalRestore(ctx, backupID)
+}
+
+// StartLocalRestore 从本地备份文件启动恢复（后台执行）。
+func (s *BackupService) StartLocalRestore(ctx context.Context, backupID string) (*BackupRecord, error) {
+	if s.shuttingDown.Load() {
+		return nil, infraerrors.ServiceUnavailable("SERVER_SHUTTING_DOWN", "server is shutting down")
+	}
+	s.opMu.Lock()
+	if s.restoring || s.backingUp {
+		s.opMu.Unlock()
+		return nil, ErrRestoreInProgress
+	}
+	s.restoring = true
+	s.opMu.Unlock()
+
+	launched := false
+	defer func() {
+		if !launched {
+			s.opMu.Lock()
+			s.restoring = false
+			s.opMu.Unlock()
+		}
+	}()
+
+	record, err := s.GetBackupRecord(ctx, backupID)
+	if err != nil {
+		return nil, err
+	}
+	if record.StorageType != BackupStorageTypeLocal || strings.TrimSpace(record.LocalPath) == "" {
+		return nil, infraerrors.BadRequest("BACKUP_NOT_LOCAL", "backup is not a local backup")
+	}
+	if record.Status != "completed" {
+		return nil, ErrBackupNotCompleted
+	}
+	path, err := canonicalLocalBackupPath(record.LocalPath)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return nil, infraerrors.NotFound("BACKUP_FILE_MISSING", "local backup file is missing on disk")
+	}
+	if err := validateLocalBackupFile(path); err != nil {
+		return nil, ErrLocalBackupCorrupt
+	}
+	record.LocalPath = path
+
+	record.RestoreStatus = "running"
+	record.RestoreError = ""
+	if err := s.saveRecord(ctx, record); err != nil {
+		return nil, fmt.Errorf("save restore record: %w", err)
+	}
+
+	launched = true
+	result := *record
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		defer func() {
+			s.opMu.Lock()
+			s.restoring = false
+			s.opMu.Unlock()
+		}()
+		defer func() {
+			if r := recover(); r != nil {
+				logger.LegacyPrintf("service.backup", "[Restore] panic recovered: %v", r)
+				record.RestoreStatus = "failed"
+				record.RestoreError = fmt.Sprintf("internal panic: %v", r)
+				record.RestoredAt = time.Now().Format(time.RFC3339)
+				_ = s.saveRecord(context.Background(), record)
+			}
+		}()
+		s.executeLocalRestore(record)
+	}()
+
+	return &result, nil
+}
+
+// executeLocalRestore 后台执行本地恢复：文件 -> gunzip -> psql restore。
+func (s *BackupService) executeLocalRestore(record *BackupRecord) {
+	ctx, cancel := context.WithTimeout(s.bgCtx, 30*time.Minute)
+	defer cancel()
+
+	f, err := os.Open(record.LocalPath) //nolint:gosec // path 由 service 构造
+	if err != nil {
+		record.RestoreStatus = "failed"
+		record.RestoreError = fmt.Sprintf("open local file failed: %v", err)
+		record.RestoredAt = time.Now().Format(time.RFC3339)
+		_ = s.saveRecord(context.Background(), record)
+		return
+	}
+	defer func() { _ = f.Close() }()
+
+	gzReader, err := gzip.NewReader(f)
+	if err != nil {
+		record.RestoreStatus = "failed"
+		record.RestoreError = fmt.Sprintf("gunzip failed: %v", err)
+		record.RestoredAt = time.Now().Format(time.RFC3339)
+		_ = s.saveRecord(context.Background(), record)
+		return
+	}
+	defer func() { _ = gzReader.Close() }()
+
+	if err := s.dumper.Restore(ctx, gzReader); err != nil {
+		record.RestoreStatus = "failed"
+		record.RestoreError = fmt.Sprintf("restore failed: %v", err)
+		record.RestoredAt = time.Now().Format(time.RFC3339)
+		_ = s.saveRecord(context.Background(), record)
+		return
+	}
+
+	record.RestoreStatus = "completed"
+	record.RestoredAt = time.Now().Format(time.RFC3339)
+	_ = s.saveRecord(context.Background(), record)
+}
+
 // executeBackup 后台执行备份（独立于 HTTP context）
 func (s *BackupService) executeBackup(record *BackupRecord, objectStore BackupObjectStore) {
 	ctx, cancel := context.WithTimeout(s.bgCtx, 30*time.Minute)
@@ -741,7 +1190,7 @@ func (s *BackupService) executeBackup(record *BackupRecord, objectStore BackupOb
 // RestoreBackup 从 S3 下载备份并流式恢复到数据库
 func (s *BackupService) RestoreBackup(ctx context.Context, backupID string) error {
 	s.opMu.Lock()
-	if s.restoring {
+	if s.restoring || s.backingUp {
 		s.opMu.Unlock()
 		return ErrRestoreInProgress
 	}
@@ -798,8 +1247,16 @@ func (s *BackupService) StartRestore(ctx context.Context, backupID string) (*Bac
 		return nil, infraerrors.ServiceUnavailable("SERVER_SHUTTING_DOWN", "server is shutting down")
 	}
 
+	initialRecord, err := s.GetBackupRecord(ctx, backupID)
+	if err != nil {
+		return nil, err
+	}
+	if initialRecord.StorageType == BackupStorageTypeLocal {
+		return s.StartLocalRestore(ctx, backupID)
+	}
+
 	s.opMu.Lock()
-	if s.restoring {
+	if s.restoring || s.backingUp {
 		s.opMu.Unlock()
 		return nil, ErrRestoreInProgress
 	}
@@ -947,18 +1404,36 @@ func (s *BackupService) DeleteBackup(ctx context.Context, backupID string) error
 		return ErrBackupNotFound
 	}
 
-	// 从 S3 删除
-	if found.S3Key != "" && found.Status == "completed" {
-		s3Cfg, err := s.loadS3Config(ctx)
-		if err == nil && s3Cfg != nil && s3Cfg.IsConfigured() {
-			objectStore, err := s.getOrCreateStore(ctx, s3Cfg)
-			if err == nil {
-				_ = objectStore.Delete(ctx, found.S3Key)
-			}
-		}
+	if err := s.deleteBackupData(ctx, found); err != nil {
+		return err
 	}
-
 	return s.saveRecordsLocked(ctx, remaining)
+}
+
+func (s *BackupService) deleteBackupData(ctx context.Context, record *BackupRecord) error {
+	if record == nil {
+		return ErrBackupNotFound
+	}
+	if record.StorageType == BackupStorageTypeLocal {
+		if strings.TrimSpace(record.LocalPath) == "" {
+			return nil
+		}
+		path, err := safeLocalBackupPathForDelete(record.LocalPath)
+		if err != nil {
+			return err
+		}
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("delete local backup file: %w", err)
+		}
+		return nil
+	}
+	if strings.TrimSpace(record.S3Key) == "" {
+		return nil
+	}
+	if err := s.deleteS3Object(ctx, record.S3Key); err != nil {
+		return fmt.Errorf("delete S3 backup object: %w", err)
+	}
+	return nil
 }
 
 // GetBackupDownloadURL 获取备份文件预签名下载 URL
@@ -1074,7 +1549,10 @@ func (s *BackupService) saveRecord(ctx context.Context, record *BackupRecord) er
 	s.recordsMu.Lock()
 	defer s.recordsMu.Unlock()
 
-	records, _ := s.loadRecordsLocked(ctx)
+	records, err := s.loadRecordsLocked(ctx)
+	if err != nil {
+		return err
+	}
 
 	// 更新已有记录或追加
 	found := false
@@ -1115,9 +1593,8 @@ func (s *BackupService) cleanupOldBackups(ctx context.Context, schedule *BackupS
 		return records[i].StartedAt > records[j].StartedAt
 	})
 
-	var toDelete []BackupRecord
 	var toKeep []BackupRecord
-
+	deletedCount := 0
 	for i, r := range records {
 		shouldDelete := false
 
@@ -1134,25 +1611,26 @@ func (s *BackupService) cleanupOldBackups(ctx context.Context, schedule *BackupS
 			}
 		}
 
-		if shouldDelete && r.Status == "completed" {
-			toDelete = append(toDelete, r)
-		} else {
+		if !shouldDelete || r.Status != "completed" {
 			toKeep = append(toKeep, r)
+			continue
 		}
+		if err := s.deleteBackupData(ctx, &r); err != nil {
+			// 保留元数据，以便下一次清理重试，避免物理文件或对象丢失追踪。
+			toKeep = append(toKeep, r)
+			logger.LegacyPrintf("service.backup", "[Backup] 删除过期备份失败 id=%s: %v", r.ID, err)
+			continue
+		}
+		deletedCount++
 	}
 
-	// 删除 S3 上的文件
-	for _, r := range toDelete {
-		if r.S3Key != "" {
-			_ = s.deleteS3Object(ctx, r.S3Key)
-		}
+	if deletedCount > 0 {
+		logger.LegacyPrintf("service.backup", "[Backup] 自动清理了 %d 个过期备份", deletedCount)
 	}
-
-	if len(toDelete) > 0 {
-		logger.LegacyPrintf("service.backup", "[Backup] 自动清理了 %d 个过期备份", len(toDelete))
-		return s.saveRecordsLocked(ctx, toKeep)
+	if deletedCount == 0 {
+		return nil
 	}
-	return nil
+	return s.saveRecordsLocked(ctx, toKeep)
 }
 
 func (s *BackupService) deleteS3Object(ctx context.Context, key string) error {

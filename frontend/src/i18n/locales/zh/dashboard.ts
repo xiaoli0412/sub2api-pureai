@@ -491,7 +491,11 @@ export default {
   availableChannels: {
     title: '可用渠道',
     description: '查看您可访问的渠道与其支持的模型、定价',
+    kicker: '访问目录',
+    resultCount: '个可见渠道',
     searchPlaceholder: '搜索渠道或模型...',
+    clearFilters: '清除筛选',
+    noFilterResults: '没有符合条件的渠道',
     empty: '暂无可用渠道',
     noModels: '未配置模型',
     noPricing: '未配置定价',
@@ -499,6 +503,12 @@ export default {
     public: '公开',
     exclusiveTooltip: '管理员授权给你的专属分组',
     publicTooltip: '对所有用户公开的分组',
+    filters: {
+      all: '全部',
+      platform: '平台',
+      group: '分组',
+      model: '模型'
+    },
     columns: {
       name: '渠道名',
       description: '描述',
@@ -528,18 +538,35 @@ export default {
   // Model Plaza (public group/model pricing showcase)
   modelPlaza: {
     title: '模型广场',
+    kicker: '模型目录',
     description: '按分组浏览可用模型与价格',
     loading: '加载中...',
     empty: '暂无可展示的分组',
     loadFailed: '加载模型广场失败',
     noSearchResult: '没有匹配的模型',
+    results: '{groups} 个分组 · {models} 个模型',
+    searchingFor: '搜索：{query}',
+    stats: {
+      groups: '分组',
+      models: '模型',
+      platforms: '平台'
+    },
     anonymousHint: '登录后可查看你的专属分组与专属倍率',
     filters: {
       platformLabel: '平台',
       groupLabel: '分组',
       rateLabel: '倍率',
+      typeLabel: '类型',
+      sortLabel: '排序',
+      standard: '标准',
+      subscription: '订阅',
+      exclusive: '专属',
+      sortRecommended: '推荐',
+      sortName: '名称',
+      sortRate: '倍率',
+      clearSearch: '清除搜索',
       modelLabel: '模型',
-      searchPlaceholder: '搜索模型名称',
+      searchPlaceholder: '搜索模型、分组或平台',
       all: '全部'
     },
     badges: {

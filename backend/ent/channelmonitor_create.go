@@ -171,6 +171,62 @@ func (_c *ChannelMonitorCreate) SetCreatedBy(v int64) *ChannelMonitorCreate {
 	return _c
 }
 
+// SetAccountID sets the "account_id" field.
+func (_c *ChannelMonitorCreate) SetAccountID(v int64) *ChannelMonitorCreate {
+	_c.mutation.SetAccountID(v)
+	return _c
+}
+
+// SetNillableAccountID sets the "account_id" field if the given value is not nil.
+func (_c *ChannelMonitorCreate) SetNillableAccountID(v *int64) *ChannelMonitorCreate {
+	if v != nil {
+		_c.SetAccountID(*v)
+	}
+	return _c
+}
+
+// SetChannelID sets the "channel_id" field.
+func (_c *ChannelMonitorCreate) SetChannelID(v int64) *ChannelMonitorCreate {
+	_c.mutation.SetChannelID(v)
+	return _c
+}
+
+// SetNillableChannelID sets the "channel_id" field if the given value is not nil.
+func (_c *ChannelMonitorCreate) SetNillableChannelID(v *int64) *ChannelMonitorCreate {
+	if v != nil {
+		_c.SetChannelID(*v)
+	}
+	return _c
+}
+
+// SetUseLogsForStatus sets the "use_logs_for_status" field.
+func (_c *ChannelMonitorCreate) SetUseLogsForStatus(v bool) *ChannelMonitorCreate {
+	_c.mutation.SetUseLogsForStatus(v)
+	return _c
+}
+
+// SetNillableUseLogsForStatus sets the "use_logs_for_status" field if the given value is not nil.
+func (_c *ChannelMonitorCreate) SetNillableUseLogsForStatus(v *bool) *ChannelMonitorCreate {
+	if v != nil {
+		_c.SetUseLogsForStatus(*v)
+	}
+	return _c
+}
+
+// SetStatusSource sets the "status_source" field.
+func (_c *ChannelMonitorCreate) SetStatusSource(v string) *ChannelMonitorCreate {
+	_c.mutation.SetStatusSource(v)
+	return _c
+}
+
+// SetNillableStatusSource sets the "status_source" field if the given value is not nil.
+func (_c *ChannelMonitorCreate) SetNillableStatusSource(v *string) *ChannelMonitorCreate {
+	if v != nil {
+		_c.SetStatusSource(*v)
+	}
+	return _c
+}
+
 // SetTemplateID sets the "template_id" field.
 func (_c *ChannelMonitorCreate) SetTemplateID(v int64) *ChannelMonitorCreate {
 	_c.mutation.SetTemplateID(v)
@@ -323,6 +379,14 @@ func (_c *ChannelMonitorCreate) defaults() {
 		v := channelmonitor.DefaultJitterSeconds
 		_c.mutation.SetJitterSeconds(v)
 	}
+	if _, ok := _c.mutation.UseLogsForStatus(); !ok {
+		v := channelmonitor.DefaultUseLogsForStatus
+		_c.mutation.SetUseLogsForStatus(v)
+	}
+	if _, ok := _c.mutation.StatusSource(); !ok {
+		v := channelmonitor.DefaultStatusSource
+		_c.mutation.SetStatusSource(v)
+	}
 	if _, ok := _c.mutation.ExtraHeaders(); !ok {
 		v := channelmonitor.DefaultExtraHeaders
 		_c.mutation.SetExtraHeaders(v)
@@ -418,6 +482,17 @@ func (_c *ChannelMonitorCreate) check() error {
 	}
 	if _, ok := _c.mutation.CreatedBy(); !ok {
 		return &ValidationError{Name: "created_by", err: errors.New(`ent: missing required field "ChannelMonitor.created_by"`)}
+	}
+	if _, ok := _c.mutation.UseLogsForStatus(); !ok {
+		return &ValidationError{Name: "use_logs_for_status", err: errors.New(`ent: missing required field "ChannelMonitor.use_logs_for_status"`)}
+	}
+	if _, ok := _c.mutation.StatusSource(); !ok {
+		return &ValidationError{Name: "status_source", err: errors.New(`ent: missing required field "ChannelMonitor.status_source"`)}
+	}
+	if v, ok := _c.mutation.StatusSource(); ok {
+		if err := channelmonitor.StatusSourceValidator(v); err != nil {
+			return &ValidationError{Name: "status_source", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.status_source": %w`, err)}
+		}
 	}
 	if _, ok := _c.mutation.ExtraHeaders(); !ok {
 		return &ValidationError{Name: "extra_headers", err: errors.New(`ent: missing required field "ChannelMonitor.extra_headers"`)}
@@ -516,6 +591,22 @@ func (_c *ChannelMonitorCreate) createSpec() (*ChannelMonitor, *sqlgraph.CreateS
 	if value, ok := _c.mutation.CreatedBy(); ok {
 		_spec.SetField(channelmonitor.FieldCreatedBy, field.TypeInt64, value)
 		_node.CreatedBy = value
+	}
+	if value, ok := _c.mutation.AccountID(); ok {
+		_spec.SetField(channelmonitor.FieldAccountID, field.TypeInt64, value)
+		_node.AccountID = &value
+	}
+	if value, ok := _c.mutation.ChannelID(); ok {
+		_spec.SetField(channelmonitor.FieldChannelID, field.TypeInt64, value)
+		_node.ChannelID = &value
+	}
+	if value, ok := _c.mutation.UseLogsForStatus(); ok {
+		_spec.SetField(channelmonitor.FieldUseLogsForStatus, field.TypeBool, value)
+		_node.UseLogsForStatus = value
+	}
+	if value, ok := _c.mutation.StatusSource(); ok {
+		_spec.SetField(channelmonitor.FieldStatusSource, field.TypeString, value)
+		_node.StatusSource = value
 	}
 	if value, ok := _c.mutation.ExtraHeaders(); ok {
 		_spec.SetField(channelmonitor.FieldExtraHeaders, field.TypeJSON, value)
@@ -825,6 +916,78 @@ func (u *ChannelMonitorUpsert) UpdateCreatedBy() *ChannelMonitorUpsert {
 // AddCreatedBy adds v to the "created_by" field.
 func (u *ChannelMonitorUpsert) AddCreatedBy(v int64) *ChannelMonitorUpsert {
 	u.Add(channelmonitor.FieldCreatedBy, v)
+	return u
+}
+
+// SetAccountID sets the "account_id" field.
+func (u *ChannelMonitorUpsert) SetAccountID(v int64) *ChannelMonitorUpsert {
+	u.Set(channelmonitor.FieldAccountID, v)
+	return u
+}
+
+// UpdateAccountID sets the "account_id" field to the value that was provided on create.
+func (u *ChannelMonitorUpsert) UpdateAccountID() *ChannelMonitorUpsert {
+	u.SetExcluded(channelmonitor.FieldAccountID)
+	return u
+}
+
+// AddAccountID adds v to the "account_id" field.
+func (u *ChannelMonitorUpsert) AddAccountID(v int64) *ChannelMonitorUpsert {
+	u.Add(channelmonitor.FieldAccountID, v)
+	return u
+}
+
+// ClearAccountID clears the value of the "account_id" field.
+func (u *ChannelMonitorUpsert) ClearAccountID() *ChannelMonitorUpsert {
+	u.SetNull(channelmonitor.FieldAccountID)
+	return u
+}
+
+// SetChannelID sets the "channel_id" field.
+func (u *ChannelMonitorUpsert) SetChannelID(v int64) *ChannelMonitorUpsert {
+	u.Set(channelmonitor.FieldChannelID, v)
+	return u
+}
+
+// UpdateChannelID sets the "channel_id" field to the value that was provided on create.
+func (u *ChannelMonitorUpsert) UpdateChannelID() *ChannelMonitorUpsert {
+	u.SetExcluded(channelmonitor.FieldChannelID)
+	return u
+}
+
+// AddChannelID adds v to the "channel_id" field.
+func (u *ChannelMonitorUpsert) AddChannelID(v int64) *ChannelMonitorUpsert {
+	u.Add(channelmonitor.FieldChannelID, v)
+	return u
+}
+
+// ClearChannelID clears the value of the "channel_id" field.
+func (u *ChannelMonitorUpsert) ClearChannelID() *ChannelMonitorUpsert {
+	u.SetNull(channelmonitor.FieldChannelID)
+	return u
+}
+
+// SetUseLogsForStatus sets the "use_logs_for_status" field.
+func (u *ChannelMonitorUpsert) SetUseLogsForStatus(v bool) *ChannelMonitorUpsert {
+	u.Set(channelmonitor.FieldUseLogsForStatus, v)
+	return u
+}
+
+// UpdateUseLogsForStatus sets the "use_logs_for_status" field to the value that was provided on create.
+func (u *ChannelMonitorUpsert) UpdateUseLogsForStatus() *ChannelMonitorUpsert {
+	u.SetExcluded(channelmonitor.FieldUseLogsForStatus)
+	return u
+}
+
+// SetStatusSource sets the "status_source" field.
+func (u *ChannelMonitorUpsert) SetStatusSource(v string) *ChannelMonitorUpsert {
+	u.Set(channelmonitor.FieldStatusSource, v)
+	return u
+}
+
+// UpdateStatusSource sets the "status_source" field to the value that was provided on create.
+func (u *ChannelMonitorUpsert) UpdateStatusSource() *ChannelMonitorUpsert {
+	u.SetExcluded(channelmonitor.FieldStatusSource)
 	return u
 }
 
@@ -1161,6 +1324,90 @@ func (u *ChannelMonitorUpsertOne) AddCreatedBy(v int64) *ChannelMonitorUpsertOne
 func (u *ChannelMonitorUpsertOne) UpdateCreatedBy() *ChannelMonitorUpsertOne {
 	return u.Update(func(s *ChannelMonitorUpsert) {
 		s.UpdateCreatedBy()
+	})
+}
+
+// SetAccountID sets the "account_id" field.
+func (u *ChannelMonitorUpsertOne) SetAccountID(v int64) *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetAccountID(v)
+	})
+}
+
+// AddAccountID adds v to the "account_id" field.
+func (u *ChannelMonitorUpsertOne) AddAccountID(v int64) *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.AddAccountID(v)
+	})
+}
+
+// UpdateAccountID sets the "account_id" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertOne) UpdateAccountID() *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateAccountID()
+	})
+}
+
+// ClearAccountID clears the value of the "account_id" field.
+func (u *ChannelMonitorUpsertOne) ClearAccountID() *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.ClearAccountID()
+	})
+}
+
+// SetChannelID sets the "channel_id" field.
+func (u *ChannelMonitorUpsertOne) SetChannelID(v int64) *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetChannelID(v)
+	})
+}
+
+// AddChannelID adds v to the "channel_id" field.
+func (u *ChannelMonitorUpsertOne) AddChannelID(v int64) *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.AddChannelID(v)
+	})
+}
+
+// UpdateChannelID sets the "channel_id" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertOne) UpdateChannelID() *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateChannelID()
+	})
+}
+
+// ClearChannelID clears the value of the "channel_id" field.
+func (u *ChannelMonitorUpsertOne) ClearChannelID() *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.ClearChannelID()
+	})
+}
+
+// SetUseLogsForStatus sets the "use_logs_for_status" field.
+func (u *ChannelMonitorUpsertOne) SetUseLogsForStatus(v bool) *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetUseLogsForStatus(v)
+	})
+}
+
+// UpdateUseLogsForStatus sets the "use_logs_for_status" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertOne) UpdateUseLogsForStatus() *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateUseLogsForStatus()
+	})
+}
+
+// SetStatusSource sets the "status_source" field.
+func (u *ChannelMonitorUpsertOne) SetStatusSource(v string) *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetStatusSource(v)
+	})
+}
+
+// UpdateStatusSource sets the "status_source" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertOne) UpdateStatusSource() *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateStatusSource()
 	})
 }
 
@@ -1673,6 +1920,90 @@ func (u *ChannelMonitorUpsertBulk) AddCreatedBy(v int64) *ChannelMonitorUpsertBu
 func (u *ChannelMonitorUpsertBulk) UpdateCreatedBy() *ChannelMonitorUpsertBulk {
 	return u.Update(func(s *ChannelMonitorUpsert) {
 		s.UpdateCreatedBy()
+	})
+}
+
+// SetAccountID sets the "account_id" field.
+func (u *ChannelMonitorUpsertBulk) SetAccountID(v int64) *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetAccountID(v)
+	})
+}
+
+// AddAccountID adds v to the "account_id" field.
+func (u *ChannelMonitorUpsertBulk) AddAccountID(v int64) *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.AddAccountID(v)
+	})
+}
+
+// UpdateAccountID sets the "account_id" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertBulk) UpdateAccountID() *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateAccountID()
+	})
+}
+
+// ClearAccountID clears the value of the "account_id" field.
+func (u *ChannelMonitorUpsertBulk) ClearAccountID() *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.ClearAccountID()
+	})
+}
+
+// SetChannelID sets the "channel_id" field.
+func (u *ChannelMonitorUpsertBulk) SetChannelID(v int64) *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetChannelID(v)
+	})
+}
+
+// AddChannelID adds v to the "channel_id" field.
+func (u *ChannelMonitorUpsertBulk) AddChannelID(v int64) *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.AddChannelID(v)
+	})
+}
+
+// UpdateChannelID sets the "channel_id" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertBulk) UpdateChannelID() *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateChannelID()
+	})
+}
+
+// ClearChannelID clears the value of the "channel_id" field.
+func (u *ChannelMonitorUpsertBulk) ClearChannelID() *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.ClearChannelID()
+	})
+}
+
+// SetUseLogsForStatus sets the "use_logs_for_status" field.
+func (u *ChannelMonitorUpsertBulk) SetUseLogsForStatus(v bool) *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetUseLogsForStatus(v)
+	})
+}
+
+// UpdateUseLogsForStatus sets the "use_logs_for_status" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertBulk) UpdateUseLogsForStatus() *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateUseLogsForStatus()
+	})
+}
+
+// SetStatusSource sets the "status_source" field.
+func (u *ChannelMonitorUpsertBulk) SetStatusSource(v string) *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetStatusSource(v)
+	})
+}
+
+// UpdateStatusSource sets the "status_source" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertBulk) UpdateStatusSource() *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateStatusSource()
 	})
 }
 

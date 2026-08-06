@@ -1026,6 +1026,132 @@
                 {{ t('admin.riskControl.blockedKeywordsLimit', { max: blockedKeywordMax }) }}
               </p>
             </div>
+
+            <div class="rounded-lg border border-dashed border-gray-200 bg-gray-50/70 p-4 dark:border-dark-700 dark:bg-dark-800/50">
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('admin.riskControl.keywordImportTitle') }}</p>
+                  <p class="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.riskControl.keywordImportHint') }}</p>
+                </div>
+                <button
+                  type="button"
+                  class="btn btn-secondary inline-flex items-center gap-2"
+                  :disabled="configForm.keyword_blocking_mode === 'api_only'"
+                  @click="openKeywordImportPicker"
+                >
+                  <Icon name="upload" size="sm" />
+                  {{ t('admin.riskControl.keywordImportChooseFile') }}
+                </button>
+              </div>
+              <input
+                ref="keywordImportFileInput"
+                data-test="keyword-import-file"
+                type="file"
+                class="hidden"
+                accept=".txt,text/plain"
+                :disabled="configForm.keyword_blocking_mode === 'api_only'"
+                @change="handleKeywordImportFile"
+              />
+
+              <div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
+                <span class="font-medium text-gray-700 dark:text-gray-200">
+                  {{ keywordImportFileName || t('admin.riskControl.keywordImportNoFile') }}
+                </span>
+                <span>{{ t('admin.riskControl.keywordImportFileLimit', { size: keywordImportMaxFileSizeLabel }) }}</span>
+              </div>
+
+              <p
+                v-if="configForm.keyword_blocking_mode === 'api_only'"
+                class="mt-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200"
+              >
+                <Icon name="exclamationTriangle" size="sm" class="mt-0.5 flex-shrink-0" />
+                <span>{{ t('admin.riskControl.keywordImportApiOnly') }}</span>
+              </p>
+
+              <p
+                v-if="keywordImportError"
+                role="alert"
+                class="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs leading-5 text-red-700 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-200"
+              >
+                {{ keywordImportError }}
+              </p>
+
+              <div
+                v-if="keywordImportPreview"
+                data-test="keyword-import-preview"
+                class="mt-4 space-y-4 rounded-lg border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-900/40"
+              >
+                <div class="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('admin.riskControl.keywordImportPreview') }}</p>
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t('admin.riskControl.keywordImportSummary', {
+                        count: keywordImportPreview.keywords.length,
+                        categories: keywordImportPreview.categories.length,
+                        duplicates: keywordImportPreview.duplicateCount,
+                      }) }}
+                    </p>
+                  </div>
+                  <div class="inline-flex rounded-lg border border-gray-200 p-1 dark:border-dark-700" role="group" :aria-label="t('admin.riskControl.keywordImportMode')">
+                    <button
+                      type="button"
+                      class="rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
+                      :class="keywordImportMode === 'append' ? 'bg-primary-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700'"
+                      :aria-pressed="keywordImportMode === 'append'"
+                      @click="keywordImportMode = 'append'"
+                    >
+                      {{ t('admin.riskControl.keywordImportAppend') }}
+                    </button>
+                    <button
+                      type="button"
+                      class="rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
+                      :class="keywordImportMode === 'replace' ? 'bg-amber-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700'"
+                      :aria-pressed="keywordImportMode === 'replace'"
+                      @click="keywordImportMode = 'replace'"
+                    >
+                      {{ t('admin.riskControl.keywordImportReplace') }}
+                    </button>
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <div
+                    v-for="category in keywordImportPreview.categories"
+                    :key="category.key"
+                    class="rounded-md border border-gray-100 bg-gray-50 px-3 py-2 dark:border-dark-700 dark:bg-dark-800"
+                  >
+                    <div class="flex items-center justify-between gap-2 text-xs">
+                      <span class="truncate font-medium text-gray-700 dark:text-gray-200" :title="category.name">{{ category.name }}</span>
+                      <span class="flex-shrink-0 text-gray-500 dark:text-gray-400">{{ t('admin.riskControl.keywordImportCategoryCount', { count: category.count }) }}</span>
+                    </div>
+                    <p class="mt-1 truncate text-xs text-gray-500 dark:text-gray-400" :title="category.preview.join(' · ')">
+                      {{ category.preview.join(' · ') }}
+                    </p>
+                  </div>
+                </div>
+
+                <p
+                  :class="keywordImportTotalCount > blockedKeywordMax || keywordImportPreview.tooLongCount > 0
+                    ? 'text-red-600 dark:text-red-300'
+                    : 'text-gray-500 dark:text-gray-400'"
+                  class="text-xs leading-5"
+                >
+                  {{ t('admin.riskControl.keywordImportResultCount', { count: keywordImportTotalCount, max: blockedKeywordMax }) }}
+                  <span v-if="keywordImportPreview.tooLongCount > 0">
+                    {{ t('admin.riskControl.keywordImportTooLong', { count: keywordImportPreview.tooLongCount, max: blockedKeywordMaxLength }) }}
+                  </span>
+                </p>
+                <button
+                  type="button"
+                  class="btn btn-primary inline-flex items-center gap-2"
+                  :disabled="keywordImportApplyDisabled"
+                  @click="applyKeywordImport"
+                >
+                  <Icon name="inbox" size="sm" />
+                  {{ t('admin.riskControl.keywordImportApply') }}
+                </button>
+              </div>
+            </div>
           </div>
 
           <div v-else class="grid grid-cols-1 gap-5 lg:grid-cols-2">
@@ -1151,6 +1277,7 @@ import { formatDateTime as formatDateTimeValue } from '@/utils/format'
 type SettingsTab = 'basic' | 'scope' | 'runtime' | 'response' | 'riskThresholds' | 'retention' | 'keywords'
 type WorkerSlotState = 'active' | 'idle' | 'disabled'
 type APIKeysWriteMode = 'append' | 'replace'
+type KeywordImportMode = 'append' | 'replace'
 type OverviewIcon = 'shield' | 'key' | 'users' | 'document'
 type OverviewItem = {
   key: string
@@ -1173,11 +1300,25 @@ type RiskThresholdRow = {
   value: number
   defaultValue: number
 }
+type KeywordImportCategory = {
+  key: string
+  name: string
+  count: number
+  preview: string[]
+}
+type KeywordImportPreview = {
+  keywords: string[]
+  categories: KeywordImportCategory[]
+  duplicateCount: number
+  tooLongCount: number
+}
 
 const maxModerationTestImages = 1
 const maxModerationTestImageSize = 8 * 1024 * 1024
 const maxVisibleApiKeyRows: number = 3
 const blockedKeywordMax = 10000
+const blockedKeywordMaxLength = 200
+const maxKeywordImportFileSize = 4 * 1024 * 1024
 const riskThresholdDefaults: Record<string, number> = {
   harassment: 98,
   'harassment/threatening': 90,
@@ -1221,6 +1362,11 @@ const moderationTestPrompt = ref('')
 const moderationTestImages = ref<string[]>([])
 const moderationTestResult = ref<ContentModerationTestAuditResult | null>(null)
 const inputDetailRow = ref<ContentModerationLog | null>(null)
+const keywordImportFileInput = ref<HTMLInputElement | null>(null)
+const keywordImportFile = ref<File | null>(null)
+const keywordImportPreview = ref<KeywordImportPreview | null>(null)
+const keywordImportError = ref('')
+const keywordImportMode = ref<KeywordImportMode>('append')
 let statusTimer: number | null = null
 
 const configForm = reactive({
@@ -1441,6 +1587,27 @@ const inputApiKeyCount = computed(() => parseApiKeys(configForm.api_keys_text).l
 const blockedKeywordList = computed(() => parseBlockedKeywords(configForm.blocked_keywords_text))
 
 const blockedKeywordCount = computed(() => blockedKeywordList.value.length)
+
+const keywordImportFileName = computed(() => keywordImportFile.value?.name || '')
+
+const keywordImportMaxFileSizeLabel = computed(() => `${Math.round(maxKeywordImportFileSize / (1024 * 1024))} MiB`)
+
+const keywordImportTotalCount = computed(() => {
+  if (!keywordImportPreview.value) return blockedKeywordCount.value
+  if (keywordImportMode.value === 'replace') return keywordImportPreview.value.keywords.length
+  return parseBlockedKeywords([
+    configForm.blocked_keywords_text,
+    ...keywordImportPreview.value.keywords,
+  ].join('\n')).length
+})
+
+const keywordImportApplyDisabled = computed(() => (
+  configForm.keyword_blocking_mode === 'api_only'
+  || !keywordImportPreview.value
+  || keywordImportPreview.value.keywords.length === 0
+  || keywordImportPreview.value.tooLongCount > 0
+  || keywordImportTotalCount.value > blockedKeywordMax
+))
 
 const pendingDeletedApiKeyCount = computed(() => pendingDeleteApiKeyHashes.value.length)
 
@@ -1788,6 +1955,15 @@ async function loadStatus(silent = true) {
 async function saveConfig() {
   saving.value = true
   try {
+    if (blockedKeywordList.value.length > blockedKeywordMax) {
+      appStore.showError(t('admin.riskControl.blockedKeywordsTooMany', { max: blockedKeywordMax }))
+      return
+    }
+    const oversizedKeyword = blockedKeywordList.value.find((keyword) => keyword.length > blockedKeywordMaxLength)
+    if (oversizedKeyword) {
+      appStore.showError(t('admin.riskControl.blockedKeywordTooLong', { max: blockedKeywordMaxLength }))
+      return
+    }
     const modelFilterPayload = buildModelFilterPayload()
     if (modelFilterPayload.type !== 'all' && modelFilterPayload.models.length === 0) {
       appStore.showError(t('admin.riskControl.modelFilterModelsRequired'))
@@ -1945,6 +2121,54 @@ function openSettings() {
   settingsOpen.value = true
 }
 
+function openKeywordImportPicker() {
+  if (configForm.keyword_blocking_mode === 'api_only') return
+  keywordImportFileInput.value?.click()
+}
+
+async function handleKeywordImportFile(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0] ?? null
+  input.value = ''
+  keywordImportFile.value = file
+  keywordImportPreview.value = null
+  keywordImportError.value = ''
+  if (!file) return
+
+  if (!/\.txt$/i.test(file.name) && file.type !== 'text/plain') {
+    keywordImportError.value = t('admin.riskControl.keywordImportTextOnly')
+    return
+  }
+  if (file.size > maxKeywordImportFileSize) {
+    keywordImportError.value = t('admin.riskControl.keywordImportFileTooLarge', { size: keywordImportMaxFileSizeLabel.value })
+    return
+  }
+
+  try {
+    const preview = parseKeywordImport(await readTextFile(file))
+    if (preview.keywords.length === 0) {
+      keywordImportError.value = t('admin.riskControl.keywordImportEmpty')
+      return
+    }
+    keywordImportPreview.value = preview
+  } catch {
+    keywordImportError.value = t('admin.riskControl.keywordImportReadFailed')
+  }
+}
+
+function applyKeywordImport() {
+  const preview = keywordImportPreview.value
+  if (!preview || keywordImportApplyDisabled.value) return
+  const importedKeywords = keywordImportMode.value === 'replace'
+    ? preview.keywords
+    : parseBlockedKeywords([
+      configForm.blocked_keywords_text,
+      ...preview.keywords,
+    ].join('\n'))
+  configForm.blocked_keywords_text = importedKeywords.join('\n')
+  appStore.showSuccess(t('admin.riskControl.keywordImportApplied', { count: importedKeywords.length }))
+}
+
 function reloadLogsFromFirstPage() {
   pagination.page = 1
   void loadLogs()
@@ -2100,6 +2324,19 @@ function fileToDataURL(file: File): Promise<string> {
     reader.onload = () => resolve(String(reader.result || ''))
     reader.onerror = () => reject(reader.error)
     reader.readAsDataURL(file)
+  })
+}
+
+async function readTextFile(file: File): Promise<string> {
+  if (typeof file.text === 'function') return file.text()
+  if (typeof file.arrayBuffer === 'function') {
+    return new TextDecoder().decode(await file.arrayBuffer())
+  }
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result ?? ''))
+    reader.onerror = () => reject(reader.error || new Error('Failed to read file'))
+    reader.readAsText(file)
   })
 }
 
@@ -2334,6 +2571,58 @@ function parseBlockedKeywords(value: string): string[] {
     out.push(kw)
   }
   return out
+}
+
+function parseKeywordImport(value: string): KeywordImportPreview {
+  const keywords: string[] = []
+  const categories = new Map<string, KeywordImportCategory>()
+  const seen = new Set<string>()
+  const uncategorized = t('admin.riskControl.keywordImportUncategorized')
+  let currentCategory = uncategorized
+  let duplicateCount = 0
+  let tooLongCount = 0
+
+  for (const rawLine of value.replace(/^\uFEFF/, '').split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (!line || line.startsWith('#')) continue
+
+    const categoryMatch = line.match(/^\[([^\]]+)\]\s*(?:#.*)?$/)
+    if (categoryMatch) {
+      currentCategory = categoryMatch[1].trim() || uncategorized
+      continue
+    }
+
+    if (line.length > blockedKeywordMaxLength) {
+      tooLongCount += 1
+      continue
+    }
+
+    const normalized = line.toLowerCase()
+    if (seen.has(normalized)) {
+      duplicateCount += 1
+      continue
+    }
+    seen.add(normalized)
+    keywords.push(line)
+
+    const categoryKey = currentCategory.toLowerCase()
+    const category = categories.get(categoryKey) ?? {
+      key: categoryKey,
+      name: currentCategory,
+      count: 0,
+      preview: [],
+    }
+    category.count += 1
+    if (category.preview.length < 4) category.preview.push(line)
+    categories.set(categoryKey, category)
+  }
+
+  return {
+    keywords,
+    categories: [...categories.values()],
+    duplicateCount,
+    tooLongCount,
+  }
 }
 
 function violationCountText(row: ContentModerationLog): string {

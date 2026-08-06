@@ -136,6 +136,15 @@ export const PROVIDER_CONFIG_FIELDS: Record<string, ConfigFieldDef[]> = {
     { key: 'appId', label: 'App ID', sensitive: false },
     { key: 'privateKey', label: '', sensitive: true },
     { key: 'publicKey', label: '', sensitive: true },
+    // Phase 3：完整配置模板，留好插槽，真实密钥后续填入。
+    { key: 'signType', label: '', sensitive: false, optional: true, defaultValue: 'RSA2', hintKey: 'admin.settings.payment.field_alipaySignTypeHint' },
+    { key: 'gatewayUrl', label: '', sensitive: false, optional: true, defaultValue: 'https://openapi.alipay.com/gateway.do', hintKey: 'admin.settings.payment.field_alipayGatewayHint' },
+    { key: 'encryptKey', label: '', sensitive: true, optional: true, clearable: true, hintKey: 'admin.settings.payment.field_alipayEncryptKeyHint' },
+    { key: 'appCertSn', label: '', sensitive: false, optional: true, clearable: true },
+    { key: 'alipayRootCertSn', label: '', sensitive: false, optional: true, clearable: true },
+    { key: 'appCertContent', label: '', sensitive: true, optional: true, clearable: true, hintKey: 'admin.settings.payment.field_alipayAppCertHint' },
+    { key: 'alipayPublicCertContent', label: '', sensitive: true, optional: true, clearable: true, hintKey: 'admin.settings.payment.field_alipayPublicCertHint' },
+    { key: 'rootCertContent', label: '', sensitive: true, optional: true, clearable: true, hintKey: 'admin.settings.payment.field_alipayRootCertHint' },
   ],
   wxpay: [
     { key: 'appId', label: 'App ID', sensitive: false },

@@ -9,6 +9,7 @@
 ARG NODE_IMAGE=node:24-alpine
 ARG GOLANG_IMAGE=golang:1.26.5-alpine
 ARG ALPINE_IMAGE=alpine:3.20
+ARG POSTGRES_IMAGE=postgres:18-alpine
 ARG GOPROXY=https://goproxy.cn,direct
 ARG GOSUMDB=sum.golang.google.cn
 
@@ -78,23 +79,39 @@ RUN VERSION_VALUE="${VERSION}" && \
     -o /app/sub2api \
     ./cmd/server
 
-# -----------------------------------------------------------------------------
-# Stage 3: Final Runtime Image
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# Stage 3: PostgreSQL Client (version-matched with docker-compose)
+# ----------------------------------------------------------------------------
+FROM ${POSTGRES_IMAGE} AS pg-client
+
+# ----------------------------------------------------------------------------
+# Stage 4: Final Runtime Image
+# ----------------------------------------------------------------------------
 FROM ${ALPINE_IMAGE}
 
 # Labels
 LABEL maintainer="Wei-Shaw <github.com/Wei-Shaw>"
 LABEL description="Sub2API - AI API Gateway Platform"
-LABEL org.opencontainers.image.source="https://github.com/Wei-Shaw/sub2api"
+LABEL org.opencontainers.image.source="https://github.com/xiaoli0412/sub2api-pureai"
 
-# Install runtime dependencies
+# Install runtime dependencies and PostgreSQL client libraries. The client binaries
+# are copied from the same PostgreSQL image used by docker-compose below.
 RUN apk add --no-cache \
     ca-certificates \
     tzdata \
     curl \
     su-exec \
+    libpq \
+    zstd-libs \
+    lz4-libs \
+    krb5-libs \
+    libldap \
+    libedit \
     && rm -rf /var/cache/apk/*
+
+COPY --from=pg-client /usr/local/bin/pg_dump /usr/local/bin/pg_dump
+COPY --from=pg-client /usr/local/bin/psql /usr/local/bin/psql
+COPY --from=pg-client /usr/local/lib/libpq.so.5* /usr/local/lib/
 
 # Create non-root user
 RUN addgroup -g 1000 sub2api && \

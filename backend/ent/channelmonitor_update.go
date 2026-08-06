@@ -251,6 +251,88 @@ func (_u *ChannelMonitorUpdate) AddCreatedBy(v int64) *ChannelMonitorUpdate {
 	return _u
 }
 
+// SetAccountID sets the "account_id" field.
+func (_u *ChannelMonitorUpdate) SetAccountID(v int64) *ChannelMonitorUpdate {
+	_u.mutation.ResetAccountID()
+	_u.mutation.SetAccountID(v)
+	return _u
+}
+
+// SetNillableAccountID sets the "account_id" field if the given value is not nil.
+func (_u *ChannelMonitorUpdate) SetNillableAccountID(v *int64) *ChannelMonitorUpdate {
+	if v != nil {
+		_u.SetAccountID(*v)
+	}
+	return _u
+}
+
+// AddAccountID adds value to the "account_id" field.
+func (_u *ChannelMonitorUpdate) AddAccountID(v int64) *ChannelMonitorUpdate {
+	_u.mutation.AddAccountID(v)
+	return _u
+}
+
+// ClearAccountID clears the value of the "account_id" field.
+func (_u *ChannelMonitorUpdate) ClearAccountID() *ChannelMonitorUpdate {
+	_u.mutation.ClearAccountID()
+	return _u
+}
+
+// SetChannelID sets the "channel_id" field.
+func (_u *ChannelMonitorUpdate) SetChannelID(v int64) *ChannelMonitorUpdate {
+	_u.mutation.ResetChannelID()
+	_u.mutation.SetChannelID(v)
+	return _u
+}
+
+// SetNillableChannelID sets the "channel_id" field if the given value is not nil.
+func (_u *ChannelMonitorUpdate) SetNillableChannelID(v *int64) *ChannelMonitorUpdate {
+	if v != nil {
+		_u.SetChannelID(*v)
+	}
+	return _u
+}
+
+// AddChannelID adds value to the "channel_id" field.
+func (_u *ChannelMonitorUpdate) AddChannelID(v int64) *ChannelMonitorUpdate {
+	_u.mutation.AddChannelID(v)
+	return _u
+}
+
+// ClearChannelID clears the value of the "channel_id" field.
+func (_u *ChannelMonitorUpdate) ClearChannelID() *ChannelMonitorUpdate {
+	_u.mutation.ClearChannelID()
+	return _u
+}
+
+// SetUseLogsForStatus sets the "use_logs_for_status" field.
+func (_u *ChannelMonitorUpdate) SetUseLogsForStatus(v bool) *ChannelMonitorUpdate {
+	_u.mutation.SetUseLogsForStatus(v)
+	return _u
+}
+
+// SetNillableUseLogsForStatus sets the "use_logs_for_status" field if the given value is not nil.
+func (_u *ChannelMonitorUpdate) SetNillableUseLogsForStatus(v *bool) *ChannelMonitorUpdate {
+	if v != nil {
+		_u.SetUseLogsForStatus(*v)
+	}
+	return _u
+}
+
+// SetStatusSource sets the "status_source" field.
+func (_u *ChannelMonitorUpdate) SetStatusSource(v string) *ChannelMonitorUpdate {
+	_u.mutation.SetStatusSource(v)
+	return _u
+}
+
+// SetNillableStatusSource sets the "status_source" field if the given value is not nil.
+func (_u *ChannelMonitorUpdate) SetNillableStatusSource(v *string) *ChannelMonitorUpdate {
+	if v != nil {
+		_u.SetStatusSource(*v)
+	}
+	return _u
+}
+
 // SetTemplateID sets the "template_id" field.
 func (_u *ChannelMonitorUpdate) SetTemplateID(v int64) *ChannelMonitorUpdate {
 	_u.mutation.SetTemplateID(v)
@@ -488,6 +570,11 @@ func (_u *ChannelMonitorUpdate) check() error {
 			return &ValidationError{Name: "jitter_seconds", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.jitter_seconds": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.StatusSource(); ok {
+		if err := channelmonitor.StatusSourceValidator(v); err != nil {
+			return &ValidationError{Name: "status_source", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.status_source": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.BodyOverrideMode(); ok {
 		if err := channelmonitor.BodyOverrideModeValidator(v); err != nil {
 			return &ValidationError{Name: "body_override_mode", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.body_override_mode": %w`, err)}
@@ -569,6 +656,30 @@ func (_u *ChannelMonitorUpdate) sqlSave(ctx context.Context) (_node int, err err
 	}
 	if value, ok := _u.mutation.AddedCreatedBy(); ok {
 		_spec.AddField(channelmonitor.FieldCreatedBy, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AccountID(); ok {
+		_spec.SetField(channelmonitor.FieldAccountID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedAccountID(); ok {
+		_spec.AddField(channelmonitor.FieldAccountID, field.TypeInt64, value)
+	}
+	if _u.mutation.AccountIDCleared() {
+		_spec.ClearField(channelmonitor.FieldAccountID, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.ChannelID(); ok {
+		_spec.SetField(channelmonitor.FieldChannelID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedChannelID(); ok {
+		_spec.AddField(channelmonitor.FieldChannelID, field.TypeInt64, value)
+	}
+	if _u.mutation.ChannelIDCleared() {
+		_spec.ClearField(channelmonitor.FieldChannelID, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.UseLogsForStatus(); ok {
+		_spec.SetField(channelmonitor.FieldUseLogsForStatus, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.StatusSource(); ok {
+		_spec.SetField(channelmonitor.FieldStatusSource, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.ExtraHeaders(); ok {
 		_spec.SetField(channelmonitor.FieldExtraHeaders, field.TypeJSON, value)
@@ -940,6 +1051,88 @@ func (_u *ChannelMonitorUpdateOne) AddCreatedBy(v int64) *ChannelMonitorUpdateOn
 	return _u
 }
 
+// SetAccountID sets the "account_id" field.
+func (_u *ChannelMonitorUpdateOne) SetAccountID(v int64) *ChannelMonitorUpdateOne {
+	_u.mutation.ResetAccountID()
+	_u.mutation.SetAccountID(v)
+	return _u
+}
+
+// SetNillableAccountID sets the "account_id" field if the given value is not nil.
+func (_u *ChannelMonitorUpdateOne) SetNillableAccountID(v *int64) *ChannelMonitorUpdateOne {
+	if v != nil {
+		_u.SetAccountID(*v)
+	}
+	return _u
+}
+
+// AddAccountID adds value to the "account_id" field.
+func (_u *ChannelMonitorUpdateOne) AddAccountID(v int64) *ChannelMonitorUpdateOne {
+	_u.mutation.AddAccountID(v)
+	return _u
+}
+
+// ClearAccountID clears the value of the "account_id" field.
+func (_u *ChannelMonitorUpdateOne) ClearAccountID() *ChannelMonitorUpdateOne {
+	_u.mutation.ClearAccountID()
+	return _u
+}
+
+// SetChannelID sets the "channel_id" field.
+func (_u *ChannelMonitorUpdateOne) SetChannelID(v int64) *ChannelMonitorUpdateOne {
+	_u.mutation.ResetChannelID()
+	_u.mutation.SetChannelID(v)
+	return _u
+}
+
+// SetNillableChannelID sets the "channel_id" field if the given value is not nil.
+func (_u *ChannelMonitorUpdateOne) SetNillableChannelID(v *int64) *ChannelMonitorUpdateOne {
+	if v != nil {
+		_u.SetChannelID(*v)
+	}
+	return _u
+}
+
+// AddChannelID adds value to the "channel_id" field.
+func (_u *ChannelMonitorUpdateOne) AddChannelID(v int64) *ChannelMonitorUpdateOne {
+	_u.mutation.AddChannelID(v)
+	return _u
+}
+
+// ClearChannelID clears the value of the "channel_id" field.
+func (_u *ChannelMonitorUpdateOne) ClearChannelID() *ChannelMonitorUpdateOne {
+	_u.mutation.ClearChannelID()
+	return _u
+}
+
+// SetUseLogsForStatus sets the "use_logs_for_status" field.
+func (_u *ChannelMonitorUpdateOne) SetUseLogsForStatus(v bool) *ChannelMonitorUpdateOne {
+	_u.mutation.SetUseLogsForStatus(v)
+	return _u
+}
+
+// SetNillableUseLogsForStatus sets the "use_logs_for_status" field if the given value is not nil.
+func (_u *ChannelMonitorUpdateOne) SetNillableUseLogsForStatus(v *bool) *ChannelMonitorUpdateOne {
+	if v != nil {
+		_u.SetUseLogsForStatus(*v)
+	}
+	return _u
+}
+
+// SetStatusSource sets the "status_source" field.
+func (_u *ChannelMonitorUpdateOne) SetStatusSource(v string) *ChannelMonitorUpdateOne {
+	_u.mutation.SetStatusSource(v)
+	return _u
+}
+
+// SetNillableStatusSource sets the "status_source" field if the given value is not nil.
+func (_u *ChannelMonitorUpdateOne) SetNillableStatusSource(v *string) *ChannelMonitorUpdateOne {
+	if v != nil {
+		_u.SetStatusSource(*v)
+	}
+	return _u
+}
+
 // SetTemplateID sets the "template_id" field.
 func (_u *ChannelMonitorUpdateOne) SetTemplateID(v int64) *ChannelMonitorUpdateOne {
 	_u.mutation.SetTemplateID(v)
@@ -1190,6 +1383,11 @@ func (_u *ChannelMonitorUpdateOne) check() error {
 			return &ValidationError{Name: "jitter_seconds", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.jitter_seconds": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.StatusSource(); ok {
+		if err := channelmonitor.StatusSourceValidator(v); err != nil {
+			return &ValidationError{Name: "status_source", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.status_source": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.BodyOverrideMode(); ok {
 		if err := channelmonitor.BodyOverrideModeValidator(v); err != nil {
 			return &ValidationError{Name: "body_override_mode", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.body_override_mode": %w`, err)}
@@ -1288,6 +1486,30 @@ func (_u *ChannelMonitorUpdateOne) sqlSave(ctx context.Context) (_node *ChannelM
 	}
 	if value, ok := _u.mutation.AddedCreatedBy(); ok {
 		_spec.AddField(channelmonitor.FieldCreatedBy, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AccountID(); ok {
+		_spec.SetField(channelmonitor.FieldAccountID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedAccountID(); ok {
+		_spec.AddField(channelmonitor.FieldAccountID, field.TypeInt64, value)
+	}
+	if _u.mutation.AccountIDCleared() {
+		_spec.ClearField(channelmonitor.FieldAccountID, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.ChannelID(); ok {
+		_spec.SetField(channelmonitor.FieldChannelID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedChannelID(); ok {
+		_spec.AddField(channelmonitor.FieldChannelID, field.TypeInt64, value)
+	}
+	if _u.mutation.ChannelIDCleared() {
+		_spec.ClearField(channelmonitor.FieldChannelID, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.UseLogsForStatus(); ok {
+		_spec.SetField(channelmonitor.FieldUseLogsForStatus, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.StatusSource(); ok {
+		_spec.SetField(channelmonitor.FieldStatusSource, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.ExtraHeaders(); ok {
 		_spec.SetField(channelmonitor.FieldExtraHeaders, field.TypeJSON, value)

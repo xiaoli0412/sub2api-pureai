@@ -415,4 +415,58 @@ describe('admin RiskControlView', () => {
       'overflow-y-auto',
     ]))
   })
+
+  it('previews bilingual categorized keyword TXT imports and supports replace mode', async () => {
+    getConfig.mockResolvedValue({
+      ...baseConfig(),
+      blocked_keywords: ['existing keyword'],
+    })
+
+    const wrapper = mount(RiskControlView, {
+      global: {
+        stubs: {
+          AppLayout: AppLayoutStub,
+          BaseDialog: BaseDialogStub,
+          Icon: true,
+          Select: true,
+          Toggle: true,
+          Pagination: true,
+          ModelWhitelistSelector: ModelWhitelistSelectorStub,
+          ProxySelector: true,
+        },
+      },
+    })
+
+    await flushPromises()
+    await findButtonByText(wrapper, 'admin.riskControl.openSettings').trigger('click')
+    await findButtonByText(wrapper, 'admin.riskControl.tabs.keywords').trigger('click')
+
+    const fileInput = wrapper.get('[data-test="keyword-import-file"]')
+    const file = new File([
+      '# ignored comment\n[violent]\nMurder\nmurder\n[隐私泄露]\n身份证号\n',
+    ], 'keywords.txt', { type: 'text/plain' })
+    Object.defineProperty(file, 'text', {
+      configurable: true,
+      value: () => Promise.resolve(
+        '# ignored comment\n[violent]\nMurder\nmurder\n[隐私泄露]\n身份证号\n'
+      ),
+    })
+    Object.defineProperty(fileInput.element, 'files', {
+      configurable: true,
+      value: [file],
+    })
+    await fileInput.trigger('change')
+    await flushPromises()
+
+    const preview = wrapper.get('[data-test="keyword-import-preview"]')
+    expect(preview.text()).toContain('admin.riskControl.keywordImportSummary')
+    expect(preview.text()).toContain('violent')
+    expect(preview.text()).toContain('隐私泄露')
+    expect(preview.text()).toContain('admin.riskControl.keywordImportReplace')
+
+    await findButtonByText(wrapper, 'admin.riskControl.keywordImportReplace').trigger('click')
+    await findButtonByText(wrapper, 'admin.riskControl.keywordImportApply').trigger('click')
+
+    expect(wrapper.get('textarea').element.value).toBe('Murder\n身份证号')
+  })
 })

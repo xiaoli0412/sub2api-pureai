@@ -45,6 +45,14 @@ const (
 	FieldLastCheckedAt = "last_checked_at"
 	// FieldCreatedBy holds the string denoting the created_by field in the database.
 	FieldCreatedBy = "created_by"
+	// FieldAccountID holds the string denoting the account_id field in the database.
+	FieldAccountID = "account_id"
+	// FieldChannelID holds the string denoting the channel_id field in the database.
+	FieldChannelID = "channel_id"
+	// FieldUseLogsForStatus holds the string denoting the use_logs_for_status field in the database.
+	FieldUseLogsForStatus = "use_logs_for_status"
+	// FieldStatusSource holds the string denoting the status_source field in the database.
+	FieldStatusSource = "status_source"
 	// FieldTemplateID holds the string denoting the template_id field in the database.
 	FieldTemplateID = "template_id"
 	// FieldExtraHeaders holds the string denoting the extra_headers field in the database.
@@ -102,6 +110,10 @@ var Columns = []string{
 	FieldJitterSeconds,
 	FieldLastCheckedAt,
 	FieldCreatedBy,
+	FieldAccountID,
+	FieldChannelID,
+	FieldUseLogsForStatus,
+	FieldStatusSource,
 	FieldTemplateID,
 	FieldExtraHeaders,
 	FieldBodyOverrideMode,
@@ -151,6 +163,12 @@ var (
 	DefaultJitterSeconds int
 	// JitterSecondsValidator is a validator for the "jitter_seconds" field. It is called by the builders before save.
 	JitterSecondsValidator func(int) error
+	// DefaultUseLogsForStatus holds the default value on creation for the "use_logs_for_status" field.
+	DefaultUseLogsForStatus bool
+	// DefaultStatusSource holds the default value on creation for the "status_source" field.
+	DefaultStatusSource string
+	// StatusSourceValidator is a validator for the "status_source" field. It is called by the builders before save.
+	StatusSourceValidator func(string) error
 	// DefaultExtraHeaders holds the default value on creation for the "extra_headers" field.
 	DefaultExtraHeaders map[string]string
 	// DefaultBodyOverrideMode holds the default value on creation for the "body_override_mode" field.
@@ -260,6 +278,26 @@ func ByLastCheckedAt(opts ...sql.OrderTermOption) OrderOption {
 // ByCreatedBy orders the results by the created_by field.
 func ByCreatedBy(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldCreatedBy, opts...).ToFunc()
+}
+
+// ByAccountID orders the results by the account_id field.
+func ByAccountID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAccountID, opts...).ToFunc()
+}
+
+// ByChannelID orders the results by the channel_id field.
+func ByChannelID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldChannelID, opts...).ToFunc()
+}
+
+// ByUseLogsForStatus orders the results by the use_logs_for_status field.
+func ByUseLogsForStatus(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUseLogsForStatus, opts...).ToFunc()
+}
+
+// ByStatusSource orders the results by the status_source field.
+func ByStatusSource(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldStatusSource, opts...).ToFunc()
 }
 
 // ByTemplateID orders the results by the template_id field.
