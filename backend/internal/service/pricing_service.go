@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -133,6 +135,26 @@ type LiteLLMModelPricing struct {
 	TokenPricingAbsent bool `json:"-"`
 }
 
+// ModelPricingOverride contains administrator-provided values. Nil fields inherit
+// the current built-in catalog value, so remote catalog updates remain effective.
+type ModelPricingOverride struct {
+	InputCostPerToken                   *float64 `json:"input_cost_per_token,omitempty"`
+	InputCostPerTokenPriority           *float64 `json:"input_cost_per_token_priority,omitempty"`
+	OutputCostPerToken                  *float64 `json:"output_cost_per_token,omitempty"`
+	OutputCostPerTokenPriority          *float64 `json:"output_cost_per_token_priority,omitempty"`
+	CacheCreationInputTokenCost         *float64 `json:"cache_creation_input_token_cost,omitempty"`
+	CacheCreationInputTokenCostPriority *float64 `json:"cache_creation_input_token_cost_priority,omitempty"`
+	CacheCreationInputTokenCostAbove1hr *float64 `json:"cache_creation_input_token_cost_above_1hr,omitempty"`
+	CacheReadInputTokenCost             *float64 `json:"cache_read_input_token_cost,omitempty"`
+	CacheReadInputTokenCostPriority     *float64 `json:"cache_read_input_token_cost_priority,omitempty"`
+	LongContextInputTokenThreshold      *int     `json:"long_context_input_token_threshold,omitempty"`
+	LongContextInputCostMultiplier      *float64 `json:"long_context_input_cost_multiplier,omitempty"`
+	LongContextOutputCostMultiplier     *float64 `json:"long_context_output_cost_multiplier,omitempty"`
+	OutputCostPerImage                  *float64 `json:"output_cost_per_image,omitempty"`
+	OutputCostPerImageToken             *float64 `json:"output_cost_per_image_token,omitempty"`
+	InputCostPerImageToken              *float64 `json:"input_cost_per_image_token,omitempty"`
+}
+
 // PricingRemoteClient 远程价格数据获取接口
 type PricingRemoteClient interface {
 	FetchPricingJSON(ctx context.Context, url string) ([]byte, error)
@@ -168,6 +190,7 @@ type PricingService struct {
 	remoteClient PricingRemoteClient
 	mu           sync.RWMutex
 	pricingData  map[string]*LiteLLMModelPricing
+	overrides    map[string]ModelPricingOverride
 	lastUpdated  time.Time
 	localHash    string
 
@@ -182,9 +205,213 @@ func NewPricingService(cfg *config.Config, remoteClient PricingRemoteClient) *Pr
 		cfg:          cfg,
 		remoteClient: remoteClient,
 		pricingData:  make(map[string]*LiteLLMModelPricing),
+		overrides:    make(map[string]ModelPricingOverride),
 		stopCh:       make(chan struct{}),
 	}
 	return s
+}
+
+// LoadModelPricingOverrides loads administrator overrides from the settings store.
+func (s *PricingService) LoadModelPricingOverrides(ctx context.Context, repo SettingRepository) error {
+	if s == nil || repo == nil {
+		return nil
+	}
+	raw, err := repo.GetValue(ctx, SettingKeyModelPricingOverrides)
+	if err != nil {
+		if errors.Is(err, ErrSettingNotFound) {
+			return nil
+		}
+		return fmt.Errorf("get model pricing overrides: %w", err)
+	}
+	values := make(map[string]ModelPricingOverride)
+	if strings.TrimSpace(raw) != "" {
+		if err := json.Unmarshal([]byte(raw), &values); err != nil {
+			return fmt.Errorf("decode model pricing overrides: %w", err)
+		}
+	}
+	if err := validateModelPricingOverrides(values); err != nil {
+		return err
+	}
+	normalized := make(map[string]ModelPricingOverride, len(values))
+	for model, override := range values {
+		normalized[normalizeModelPricingOverrideKey(model)] = override
+	}
+	s.mu.Lock()
+	s.overrides = normalized
+	s.mu.Unlock()
+	return nil
+}
+
+// GetModelPricingOverride reports the persisted override for a model, if any.
+func (s *PricingService) GetModelPricingOverride(modelName string) (ModelPricingOverride, bool) {
+	if s == nil || strings.TrimSpace(modelName) == "" {
+		return ModelPricingOverride{}, false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, candidate := range s.buildModelLookupCandidates(strings.ToLower(strings.TrimSpace(modelName))) {
+		if override, ok := s.overrides[candidate]; ok {
+			return override, true
+		}
+	}
+	return ModelPricingOverride{}, false
+}
+
+// SetModelPricingOverride persists and activates one model override. An empty
+// override removes the model entry and restores inherited built-in pricing.
+func (s *PricingService) SetModelPricingOverride(ctx context.Context, repo SettingRepository, modelName string, override ModelPricingOverride) error {
+	if s == nil || repo == nil {
+		return fmt.Errorf("pricing override store is unavailable")
+	}
+	modelName = normalizeModelPricingOverrideKey(modelName)
+	if modelName == "" {
+		return fmt.Errorf("model name is required")
+	}
+	if err := validateModelPricingOverride(override); err != nil {
+		return err
+	}
+	s.mu.RLock()
+	next := make(map[string]ModelPricingOverride, len(s.overrides)+1)
+	for key, value := range s.overrides {
+		next[key] = value
+	}
+	s.mu.RUnlock()
+	if isEmptyModelPricingOverride(override) {
+		delete(next, modelName)
+	} else {
+		next[modelName] = override
+	}
+	raw, err := json.Marshal(next)
+	if err != nil {
+		return fmt.Errorf("encode model pricing overrides: %w", err)
+	}
+	if err := repo.Set(ctx, SettingKeyModelPricingOverrides, string(raw)); err != nil {
+		return fmt.Errorf("save model pricing overrides: %w", err)
+	}
+	s.mu.Lock()
+	s.overrides = next
+	s.mu.Unlock()
+	return nil
+}
+
+// ResetModelPricingOverride removes all aliases matching a model override.
+func (s *PricingService) ResetModelPricingOverride(ctx context.Context, repo SettingRepository, modelName string) error {
+	if s == nil || repo == nil {
+		return fmt.Errorf("pricing override store is unavailable")
+	}
+	modelName = normalizeModelPricingOverrideKey(modelName)
+	if modelName == "" {
+		return fmt.Errorf("model name is required")
+	}
+	s.mu.RLock()
+	next := make(map[string]ModelPricingOverride, len(s.overrides))
+	for key, value := range s.overrides {
+		next[key] = value
+	}
+	for _, candidate := range s.buildModelLookupCandidates(modelName) {
+		delete(next, candidate)
+	}
+	s.mu.RUnlock()
+	raw, err := json.Marshal(next)
+	if err != nil {
+		return fmt.Errorf("encode model pricing overrides: %w", err)
+	}
+	if err := repo.Set(ctx, SettingKeyModelPricingOverrides, string(raw)); err != nil {
+		return fmt.Errorf("save model pricing overrides: %w", err)
+	}
+	s.mu.Lock()
+	s.overrides = next
+	s.mu.Unlock()
+	return nil
+}
+
+func normalizeModelPricingOverrideKey(model string) string {
+	return strings.ToLower(strings.TrimSpace(model))
+}
+
+func validateModelPricingOverrides(values map[string]ModelPricingOverride) error {
+	for model, override := range values {
+		if normalizeModelPricingOverrideKey(model) == "" {
+			return fmt.Errorf("model pricing override contains an empty model name")
+		}
+		if err := validateModelPricingOverride(override); err != nil {
+			return fmt.Errorf("model %q: %w", model, err)
+		}
+	}
+	return nil
+}
+
+func validateModelPricingOverride(override ModelPricingOverride) error {
+	prices := []*float64{
+		override.InputCostPerToken, override.InputCostPerTokenPriority,
+		override.OutputCostPerToken, override.OutputCostPerTokenPriority,
+		override.CacheCreationInputTokenCost, override.CacheCreationInputTokenCostPriority,
+		override.CacheCreationInputTokenCostAbove1hr, override.CacheReadInputTokenCost,
+		override.CacheReadInputTokenCostPriority, override.LongContextInputCostMultiplier,
+		override.LongContextOutputCostMultiplier, override.OutputCostPerImage,
+		override.OutputCostPerImageToken, override.InputCostPerImageToken,
+	}
+	for _, value := range prices {
+		if value != nil && (*value < 0 || math.IsNaN(*value) || math.IsInf(*value, 0)) {
+			return fmt.Errorf("pricing values must be finite and non-negative")
+		}
+	}
+	if override.LongContextInputTokenThreshold != nil && *override.LongContextInputTokenThreshold < 0 {
+		return fmt.Errorf("long context token threshold must be non-negative")
+	}
+	return nil
+}
+
+func isEmptyModelPricingOverride(override ModelPricingOverride) bool {
+	return override == (ModelPricingOverride{})
+}
+
+func applyModelPricingOverride(base *LiteLLMModelPricing, override ModelPricingOverride) {
+	if override.InputCostPerToken != nil {
+		base.InputCostPerToken = *override.InputCostPerToken
+	}
+	if override.InputCostPerTokenPriority != nil {
+		base.InputCostPerTokenPriority = *override.InputCostPerTokenPriority
+	}
+	if override.OutputCostPerToken != nil {
+		base.OutputCostPerToken = *override.OutputCostPerToken
+	}
+	if override.OutputCostPerTokenPriority != nil {
+		base.OutputCostPerTokenPriority = *override.OutputCostPerTokenPriority
+	}
+	if override.CacheCreationInputTokenCost != nil {
+		base.CacheCreationInputTokenCost = *override.CacheCreationInputTokenCost
+	}
+	if override.CacheCreationInputTokenCostPriority != nil {
+		base.CacheCreationInputTokenCostPriority = *override.CacheCreationInputTokenCostPriority
+	}
+	if override.CacheCreationInputTokenCostAbove1hr != nil {
+		base.CacheCreationInputTokenCostAbove1hr = *override.CacheCreationInputTokenCostAbove1hr
+	}
+	if override.CacheReadInputTokenCost != nil {
+		base.CacheReadInputTokenCost = *override.CacheReadInputTokenCost
+	}
+	if override.CacheReadInputTokenCostPriority != nil {
+		base.CacheReadInputTokenCostPriority = *override.CacheReadInputTokenCostPriority
+	}
+	if override.LongContextInputTokenThreshold != nil {
+		base.LongContextInputTokenThreshold = *override.LongContextInputTokenThreshold
+	}
+	if override.LongContextInputCostMultiplier != nil {
+		base.LongContextInputCostMultiplier = *override.LongContextInputCostMultiplier
+	}
+	if override.LongContextOutputCostMultiplier != nil {
+		base.LongContextOutputCostMultiplier = *override.LongContextOutputCostMultiplier
+	}
+	if override.OutputCostPerImage != nil {
+		base.OutputCostPerImage = *override.OutputCostPerImage
+	}
+	if override.OutputCostPerImageToken != nil {
+		base.OutputCostPerImageToken = *override.OutputCostPerImageToken
+	}
+	if override.InputCostPerImageToken != nil {
+		base.InputCostPerImageToken = *override.InputCostPerImageToken
+	}
 }
 
 // Initialize 初始化价格服务
@@ -639,12 +866,27 @@ func (s *PricingService) validatePricingURL(raw string) (string, error) {
 	return normalized, nil
 }
 
-// GetModelPricing 获取模型价格（带模糊匹配）
+// GetModelPricing 获取模型价格（带模糊匹配和管理员覆盖）
 func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	if modelName == "" {
+	pricing := s.getModelPricingLocked(modelName)
+	if pricing == nil {
+		return nil
+	}
+	return s.applyOverrideLocked(strings.ToLower(strings.TrimSpace(modelName)), pricing)
+}
+
+// GetModelPricingDefault returns the built-in catalog value without administrator overrides.
+func (s *PricingService) GetModelPricingDefault(modelName string) *LiteLLMModelPricing {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.getModelPricingLocked(modelName)
+}
+
+func (s *PricingService) getModelPricingLocked(modelName string) *LiteLLMModelPricing {
+	if strings.TrimSpace(modelName) == "" {
 		return nil
 	}
 
@@ -653,45 +895,66 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 	lookupCandidates := s.buildModelLookupCandidates(modelLower)
 
 	// 1. 精确匹配
+	var pricing *LiteLLMModelPricing
 	for _, candidate := range lookupCandidates {
 		if candidate == "" {
 			continue
 		}
-		if pricing, ok := s.pricingData[candidate]; ok {
-			return pricing
+		if value, ok := s.pricingData[candidate]; ok {
+			pricing = value
+			break
 		}
 	}
 
 	// 2. 处理常见的模型名称变体
-	// claude-opus-4-5-20251101 -> claude-opus-4.5-20251101
-	for _, candidate := range lookupCandidates {
-		normalized := strings.ReplaceAll(candidate, "-4-5-", "-4.5-")
-		if pricing, ok := s.pricingData[normalized]; ok {
-			return pricing
+	if pricing == nil {
+		// claude-opus-4-5-20251101 -> claude-opus-4.5-20251101
+		for _, candidate := range lookupCandidates {
+			normalized := strings.ReplaceAll(candidate, "-4-5-", "-4.5-")
+			if value, ok := s.pricingData[normalized]; ok {
+				pricing = value
+				break
+			}
 		}
 	}
 
 	// 3. 尝试模糊匹配（去掉版本号后缀）
-	// claude-opus-4-5-20251101 -> claude-opus-4.5
-	baseName := s.extractBaseName(lookupCandidates[0])
-	for key, pricing := range s.pricingData {
-		keyBase := s.extractBaseName(strings.ToLower(key))
-		if keyBase == baseName {
-			return pricing
+	if pricing == nil {
+		baseName := s.extractBaseName(lookupCandidates[0])
+		for key, value := range s.pricingData {
+			keyBase := s.extractBaseName(strings.ToLower(key))
+			if keyBase == baseName {
+				pricing = value
+				break
+			}
 		}
 	}
 
 	// 4. 基于模型系列匹配（Claude）
-	if pricing := s.matchByModelFamily(lookupCandidates[0]); pricing != nil {
-		return pricing
+	if pricing == nil {
+		pricing = s.matchByModelFamily(lookupCandidates[0])
 	}
 
 	// 5. OpenAI 模型回退策略
-	if strings.HasPrefix(lookupCandidates[0], "gpt-") {
-		return s.matchOpenAIModel(lookupCandidates[0])
+	if pricing == nil && strings.HasPrefix(lookupCandidates[0], "gpt-") {
+		pricing = s.matchOpenAIModel(lookupCandidates[0])
 	}
 
-	return nil
+	return pricing
+}
+
+func (s *PricingService) applyOverrideLocked(modelName string, pricing *LiteLLMModelPricing) *LiteLLMModelPricing {
+	if pricing == nil {
+		return nil
+	}
+	for _, candidate := range s.buildModelLookupCandidates(modelName) {
+		if override, ok := s.overrides[candidate]; ok {
+			copy := *pricing
+			applyModelPricingOverride(&copy, override)
+			return &copy
+		}
+	}
+	return pricing
 }
 
 func (s *PricingService) buildModelLookupCandidates(modelLower string) []string {

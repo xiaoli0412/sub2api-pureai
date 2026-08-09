@@ -59,6 +59,8 @@ type OpsErrorLog struct {
 	AccountName string `json:"account_name"`
 	GroupID     *int64 `json:"group_id"`
 	GroupName   string `json:"group_name"`
+	// ChannelID is resolved from the correlated usage log when available.
+	ChannelID *int64 `json:"channel_id,omitempty"`
 
 	ClientIP    *string `json:"client_ip"`
 	RequestPath string  `json:"request_path"`
@@ -108,6 +110,20 @@ type OpsErrorLogFilter struct {
 	Platform  string
 	GroupID   *int64
 	AccountID *int64
+	// These plural filters are used for resource-scope intersections. Empty
+	// slices mean that dimension is unrestricted.
+	AccountIDs []int64
+	ChannelIDs []int64
+	GroupIDs   []int64
+	UserIDs    []int64
+	// SourceAllowlist is an additional source predicate supplied by a scoped
+	// AstrBot token. Source remains the caller's exact filter.
+	SourceAllowlist []string
+	// ChannelID is the caller's exact channel filter. Channel data lives in
+	// usage_logs, so the repository correlates by request_id.
+	ChannelID *int64
+	// Level maps to the persisted severity column for the AstrBot API.
+	Level string
 
 	StatusCodes      []int
 	StatusCodesOther bool

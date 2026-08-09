@@ -245,20 +245,30 @@ SELECT
   COALESCE(e.model, ''),
   COALESCE(e.resolved, false),
   e.resolved_at,
-  e.resolved_by_user_id,
-  COALESCE(u2.email, ''),
-  COALESCE(e.client_request_id, ''),
-  COALESCE(e.request_id, ''),
-  COALESCE(e.error_message, ''),
-  e.user_id,
-  COALESCE(u.email, ''),
-  e.api_key_id,
-  e.account_id,
-  COALESCE(a.name, ''),
-  e.group_id,
-  COALESCE(g.name, ''),
-  CASE WHEN e.client_ip IS NULL THEN NULL ELSE host(e.client_ip) END,
-  COALESCE(e.request_path, ''),
+	  e.resolved_by_user_id,
+	  COALESCE(u2.email, ''),
+	  COALESCE(e.client_request_id, ''),
+	  COALESCE(e.request_id, ''),
+	  COALESCE(e.error_message, ''),
+	  e.user_id,
+	  COALESCE(u.email, ''),
+	  e.api_key_id,
+	  e.account_id,
+	  COALESCE(a.name, ''),
+	  e.group_id,
+	  COALESCE(g.name, ''),
+	  CASE
+	    WHEN COALESCE(e.request_id, '') = '' THEN NULL
+	    ELSE (
+	      SELECT ul.channel_id
+	      FROM usage_logs ul
+	      WHERE ul.request_id = e.request_id AND ul.channel_id IS NOT NULL
+	      ORDER BY ul.id DESC
+	      LIMIT 1
+	    )
+	  END,
+	  CASE WHEN e.client_ip IS NULL THEN NULL ELSE host(e.client_ip) END,
+	  COALESCE(e.request_path, ''),
   e.stream,
   COALESCE(e.inbound_endpoint, ''),
   COALESCE(e.upstream_endpoint, ''),
@@ -295,6 +305,7 @@ LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
 		var accountName string
 		var groupID sql.NullInt64
 		var groupName string
+		var channelID sql.NullInt64
 		var userEmail string
 		var resolvedAt sql.NullTime
 		var resolvedBy sql.NullInt64
@@ -327,6 +338,7 @@ LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
 			&accountName,
 			&groupID,
 			&groupName,
+			&channelID,
 			&clientIP,
 			&item.RequestPath,
 			&item.Stream,
@@ -372,6 +384,10 @@ LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
 		if groupID.Valid {
 			v := groupID.Int64
 			item.GroupID = &v
+		}
+		if channelID.Valid {
+			v := channelID.Int64
+			item.ChannelID = &v
 		}
 		item.GroupName = groupName
 		if requestType.Valid {
@@ -935,6 +951,40 @@ func buildOpsErrorLogsWhere(filter *service.OpsErrorLogFilter) (string, []any) {
 		args = append(args, *filter.GroupID)
 		clauses = append(clauses, "e.group_id = $"+itoa(len(args)))
 	}
+	if len(filter.AccountIDs) > 0 {
+		args = append(args, pq.Array(filter.AccountIDs))
+		clauses = append(clauses, "e.account_id = ANY($"+itoa(len(args))+")")
+	}
+	if len(filter.GroupIDs) > 0 {
+		args = append(args, pq.Array(filter.GroupIDs))
+		clauses = append(clauses, "e.group_id = ANY($"+itoa(len(args))+")")
+	}
+	if len(filter.UserIDs) > 0 {
+		args = append(args, pq.Array(filter.UserIDs))
+		clauses = append(clauses, "e.user_id = ANY($"+itoa(len(args))+")")
+	}
+	if len(filter.ChannelIDs) > 0 {
+		args = append(args, pq.Array(filter.ChannelIDs))
+		clauses = append(clauses, `EXISTS (
+				SELECT 1 FROM usage_logs ul_scope
+				WHERE ul_scope.request_id = e.request_id AND ul_scope.channel_id = ANY($`+itoa(len(args))+`)
+			)`)
+	}
+	if filter.ChannelID != nil && *filter.ChannelID > 0 {
+		args = append(args, *filter.ChannelID)
+		clauses = append(clauses, `EXISTS (
+				SELECT 1 FROM usage_logs ul_channel
+				WHERE ul_channel.request_id = e.request_id AND ul_channel.channel_id = $`+itoa(len(args))+`
+			)`)
+	}
+	if len(filter.SourceAllowlist) > 0 {
+		args = append(args, pq.Array(filter.SourceAllowlist))
+		clauses = append(clauses, "LOWER(COALESCE(e.error_source,'')) = ANY($"+itoa(len(args))+")")
+	}
+	if filter.Level != "" {
+		args = append(args, strings.ToLower(strings.TrimSpace(filter.Level)))
+		clauses = append(clauses, "LOWER(COALESCE(e.severity,'')) = $"+itoa(len(args)))
+	}
 	if filter.AccountID != nil && *filter.AccountID > 0 {
 		args = append(args, *filter.AccountID)
 		clauses = append(clauses, "e.account_id = $"+itoa(len(args)))
@@ -1096,6 +1146,19 @@ func buildOpsSystemLogsWhere(filter *service.OpsSystemLogFilter) (string, []any,
 			clauses = append(clauses, "COALESCE(l.component,'') = $"+itoa(len(args)))
 			hasConstraint = true
 		}
+		if len(filter.Components) > 0 {
+			components := make([]string, 0, len(filter.Components))
+			for _, component := range filter.Components {
+				if value := strings.TrimSpace(component); value != "" {
+					components = append(components, value)
+				}
+			}
+			if len(components) > 0 {
+				args = append(args, pq.Array(components))
+				clauses = append(clauses, "COALESCE(l.component,'') = ANY($"+itoa(len(args))+")")
+				hasConstraint = true
+			}
+		}
 		if v := strings.TrimSpace(filter.RequestID); v != "" {
 			args = append(args, v)
 			clauses = append(clauses, "COALESCE(l.request_id,'') = $"+itoa(len(args)))
@@ -1111,6 +1174,19 @@ func buildOpsSystemLogsWhere(filter *service.OpsSystemLogFilter) (string, []any,
 			clauses = append(clauses, "l.user_id = $"+itoa(len(args)))
 			hasConstraint = true
 		}
+		if len(filter.UserIDs) > 0 {
+			userIDs := make([]int64, 0, len(filter.UserIDs))
+			for _, id := range filter.UserIDs {
+				if id > 0 {
+					userIDs = append(userIDs, id)
+				}
+			}
+			if len(userIDs) > 0 {
+				args = append(args, pq.Array(userIDs))
+				clauses = append(clauses, "l.user_id = ANY($"+itoa(len(args))+")")
+				hasConstraint = true
+			}
+		}
 		if filter.APIKeyID != nil && *filter.APIKeyID > 0 {
 			args = append(args, *filter.APIKeyID)
 			clauses = append(clauses, "l.api_key_id = $"+itoa(len(args)))
@@ -1120,6 +1196,19 @@ func buildOpsSystemLogsWhere(filter *service.OpsSystemLogFilter) (string, []any,
 			args = append(args, *filter.AccountID)
 			clauses = append(clauses, "l.account_id = $"+itoa(len(args)))
 			hasConstraint = true
+		}
+		if len(filter.AccountIDs) > 0 {
+			accountIDs := make([]int64, 0, len(filter.AccountIDs))
+			for _, id := range filter.AccountIDs {
+				if id > 0 {
+					accountIDs = append(accountIDs, id)
+				}
+			}
+			if len(accountIDs) > 0 {
+				args = append(args, pq.Array(accountIDs))
+				clauses = append(clauses, "l.account_id = ANY($"+itoa(len(args))+")")
+				hasConstraint = true
+			}
 		}
 		if v := strings.TrimSpace(filter.Platform); v != "" {
 			args = append(args, v)

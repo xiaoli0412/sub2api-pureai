@@ -47,6 +47,8 @@ func RegisterAstrBotRoutes(
 		read.GET("/channels/status", h.AstrBot.ChannelsStatus)
 		read.GET("/accounts/status", h.AstrBot.AccountsStatus)
 		read.GET("/models/prices", h.AstrBot.ModelPrices)
+		read.GET("/model-audit", h.AstrBot.ModelAudit)
+		read.GET("/logs", h.AstrBot.Logs)
 
 		write := bot.Group("")
 		write.Use(gin.HandlerFunc(astrBotWrite))

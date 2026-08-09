@@ -26,7 +26,12 @@ Requests are valid only in a short timestamp window. The nonce is hashed before 
 
 A deployment must ensure that event identity values are obtained from AstrBot's trusted event object or from an authenticated adapter envelope. AI-generated text must never choose an installation, sender, session, conversation, resource, or credential.
 
-## Write authorization
+## Proactive audit delivery
+
+Model-audit reads preserve three-state mismatch semantics: `NULL` for no observed response model, `false` for an observed match, and `true` for an observed mismatch. Alert eligibility is deterministic and evaluated before any optional AI summary. Targets, schedules, rules, cooldowns, and write permissions are configuration or explicit-command inputs; AI, logs, upstream data, and natural-language suggestions cannot alter them.
+
+The plugin persists delivery state and audit schedule slots in SQLite, claims rows with owner leases, and retries only bounded retryable failures. External platform delivery is at-least-once, not exactly-once: a process failure after a successful send can produce a duplicate on recovery. Stable delivery keys, lease checks, cooldowns, and recovery handling reduce duplicates without claiming an impossible guarantee.
+
 
 AI is read/analyze/propose-only. It cannot call a mutation endpoint, manufacture a confirmation, select a target, or turn a recommendation into an execution. A write begins only after an explicit user command accepted by the plugin.
 
@@ -46,7 +51,7 @@ Old mutation routes are compatibility paths only. They require an operation ID f
 
 ## Resource authorization
 
-A token may have an empty allowlist for backwards-compatible unrestricted administrator operation, or a non-empty allowlist with explicit account, channel, group, user, and log-source IDs. A non-empty allowlist is restrictive. Missing categories do not mean unrestricted access.
+A token may have an empty allowlist for backwards-compatible unrestricted administrator operation only when the deployment explicitly chooses that posture, or a non-empty allowlist with explicit account, channel, group, user, and log-source IDs. A non-empty allowlist is restrictive. Missing categories do not mean unrestricted access.
 
 The handler checks authorization before preparing an operation, again before execution, and on compatibility mutation routes. Account and channel list endpoints load only explicitly allowed IDs before applying filters and pagination. Global cost, profit, consumption, and model-price aggregates require an unrestricted token until resource-aware aggregate queries exist.
 

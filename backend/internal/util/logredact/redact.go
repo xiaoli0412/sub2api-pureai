@@ -37,6 +37,7 @@ type textRedactPatterns struct {
 	reJSONLike  *regexp.Regexp
 	reQueryLike *regexp.Regexp
 	rePlain     *regexp.Regexp
+	reBearer    *regexp.Regexp
 }
 
 var (
@@ -100,6 +101,7 @@ func RedactText(input string, extraKeys ...string) string {
 	out = reGOCSPX.ReplaceAllString(out, "GOCSPX-***")
 	out = reAIza.ReplaceAllString(out, "AIza***")
 	out = patterns.reJSONLike.ReplaceAllString(out, `$1***$3`)
+	out = patterns.reBearer.ReplaceAllString(out, `$1$2***`)
 	out = patterns.reQueryLike.ReplaceAllString(out, `$1=***`)
 	out = patterns.rePlain.ReplaceAllString(out, `$1$2***`)
 	return out
@@ -112,6 +114,8 @@ func compileTextRedactPatterns(extraKeys []string) *textRedactPatterns {
 		reJSONLike: regexp.MustCompile(`(?i)("(?:` + keyAlt + `)"\s*:\s*")([^"]*)(")`),
 		// Query-like: access_token=...
 		reQueryLike: regexp.MustCompile(`(?i)\b((?:` + keyAlt + `))=([^&\s]+)`),
+		// Bearer credentials: authorization=Bearer <token>
+		reBearer: regexp.MustCompile(`(?i)(\b(?:authorization|proxy)\b\s*[:=]\s*)(Bearer\s+)[^,\s]+`),
 		// Plain: access_token: ... / access_token = ...
 		rePlain: regexp.MustCompile(`(?i)\b((?:` + keyAlt + `))\b(\s*[:=]\s*)([^,\s]+)`),
 	}

@@ -1,0 +1,1081 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>無職転生 ~異世界行ったら本気だす~ | Sub2API Six-Faced World Gateway</title>
+  
+  <!-- Authentic Japanese & Cinematic Typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Shippori+Mincho:wght@400;600;800;900&family=Zen+Old+Mincho:wght@400;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+
+  <style>
+    /* ==========================================================================
+       1. CINEMATIC COLOR PALETTE & ATMOSPHERE
+       ========================================================================== */
+    :root {
+      --bg-dark: #07090e;
+      --cinema-black: #030407;
+      
+      /* Fittoa Dawn (Default / Rudeus) */
+      --sky-glow: #e0a96d;
+      --sky-azure: #2c4f7c;
+      --mana-cyan: #4deeea;
+      --mana-glow: rgba(77, 238, 234, 0.45);
+      --magic-gold: #e2b765;
+      --magic-gold-dim: rgba(226, 183, 101, 0.2);
+      
+      --text-bright: #f4f6fa;
+      --text-warm: #e2dbce;
+      --text-muted: #9ba1b0;
+      
+      --font-mincho: 'Shippori Mincho', 'Zen Old Mincho', 'Hiragino Mincho ProN', 'Yu Mincho', serif;
+      --font-display: 'Cinzel', 'Shippori Mincho', serif;
+      --font-mono: 'JetBrains Mono', monospace;
+      
+      --grain-opacity: 0.055;
+    }
+
+    /* Scene Presets */
+    body[data-scene="fittoa"] {
+      --sky-glow: #e0a96d;
+      --sky-azure: #223a5e;
+      --mana-cyan: #38ef7d;
+      --mana-glow: rgba(56, 239, 125, 0.4);
+      --magic-gold: #f6d365;
+    }
+    body[data-scene="calamity"] {
+      --sky-glow: #8e2de2;
+      --sky-azure: #14082e;
+      --mana-cyan: #00f2fe;
+      --mana-glow: rgba(0, 242, 254, 0.6);
+      --magic-gold: #e0a96d;
+    }
+    body[data-scene="demon"] {
+      --sky-glow: #ff416c;
+      --sky-azure: #2b0b14;
+      --mana-cyan: #ff4b2b;
+      --mana-glow: rgba(255, 75, 43, 0.55);
+      --magic-gold: #f9d423;
+    }
+    body[data-scene="ranoa"] {
+      --sky-glow: #89f7fe;
+      --sky-azure: #1b2838;
+      --mana-cyan: #66a6ff;
+      --mana-glow: rgba(102, 166, 255, 0.5);
+      --magic-gold: #ffffff;
+    }
+
+    /* ==========================================================================
+       2. RESET & CINEMA LETTERBOX FRAME
+       ========================================================================== */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    html, body {
+      width: 100%;
+      min-height: 100%;
+      background-color: var(--bg-dark);
+      color: var(--text-warm);
+      font-family: var(--font-mincho);
+      overflow-x: hidden;
+      scroll-behavior: smooth;
+    }
+
+    /* Cinema 21:9 Letterbox Bars */
+    .cinema-bar-top, .cinema-bar-bottom {
+      position: fixed;
+      left: 0;
+      width: 100vw;
+      height: 48px;
+      background: var(--cinema-black);
+      z-index: 999;
+      pointer-events: none;
+      box-shadow: 0 0 30px rgba(0, 0, 0, 0.9);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 40px;
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      color: #525866;
+      letter-spacing: 0.25em;
+    }
+    .cinema-bar-top { top: 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
+    .cinema-bar-bottom { bottom: 0; border-top: 1px solid rgba(255, 255, 255, 0.05); }
+
+    /* Film Grain Overlay */
+    .film-grain {
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.08'/%3E%3C/svg%3E");
+      opacity: 0.8;
+      pointer-events: none;
+      z-index: 998;
+    }
+
+    /* Anamorphic Lens Flare & Dust Atmosphere */
+    .lens-flare {
+      position: fixed;
+      top: -10vh;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 120vw;
+      height: 60vh;
+      background: radial-gradient(ellipse at 50% 0%, var(--sky-glow), transparent 70%);
+      opacity: 0.22;
+      filter: blur(60px);
+      pointer-events: none;
+      z-index: 1;
+      transition: all 1.4s ease;
+    }
+
+    .vignette {
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(circle at 50% 50%, transparent 40%, rgba(3, 4, 7, 0.75) 90%);
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    /* ==========================================================================
+       3. INTERACTIVE SKY & FLOATING DUST MOTES CANVAS
+       ========================================================================== */
+    #ambient-canvas {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    /* ==========================================================================
+       4. ROTATING ANCIENT RUNIC MAGIC CIRCLE (無職転生 魔法陣)
+       ========================================================================== */
+    .grimoire-circle-wrapper {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) perspective(1400px) rotateX(48deg);
+      width: 780px;
+      height: 780px;
+      pointer-events: none;
+      z-index: 1;
+      opacity: 0.28;
+      transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.6s ease;
+    }
+
+    .grimoire-svg {
+      width: 100%;
+      height: 100%;
+    }
+    .spin-slow {
+      animation: spinClockwise 65s linear infinite;
+      transform-origin: center center;
+    }
+    .spin-rev {
+      animation: spinCounterClockwise 45s linear infinite;
+      transform-origin: center center;
+    }
+
+    @keyframes spinClockwise { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    @keyframes spinCounterClockwise { from { transform: rotate(0deg); } to { transform: rotate(-360deg); } }
+
+    /* ==========================================================================
+       5. TOP NAVIGATION (JAPANESE OP TITLE BAR)
+       ========================================================================== */
+    .anime-header {
+      position: fixed;
+      top: 48px;
+      left: 0;
+      width: 100%;
+      z-index: 100;
+      padding: 18px 48px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      background: linear-gradient(180deg, rgba(7, 9, 14, 0.85), transparent);
+    }
+
+    .title-group {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      text-decoration: none;
+    }
+
+    .anime-seal {
+      width: 38px;
+      height: 38px;
+      border: 1px solid var(--magic-gold);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(226, 183, 101, 0.08);
+      border-radius: 4px;
+      box-shadow: 0 0 15px var(--magic-gold-dim);
+    }
+    .anime-seal span {
+      font-family: var(--font-mincho);
+      font-size: 1.1rem;
+      font-weight: 900;
+      color: var(--magic-gold);
+    }
+
+    .title-text-box h1 {
+      font-family: var(--font-mincho);
+      font-size: 1.25rem;
+      font-weight: 900;
+      letter-spacing: 0.18em;
+      color: #fff;
+      text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
+    }
+    .title-text-box span {
+      font-family: var(--font-display);
+      font-size: 0.62rem;
+      color: var(--magic-gold);
+      letter-spacing: 0.35em;
+      text-transform: uppercase;
+      display: block;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .sound-btn, .scene-select-btn {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 4px;
+      padding: 8px 16px;
+      font-family: var(--font-mincho);
+      font-size: 0.82rem;
+      color: var(--text-warm);
+      cursor: pointer;
+      backdrop-filter: blur(8px);
+      transition: all 0.3s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .sound-btn:hover, .scene-select-btn:hover {
+      border-color: var(--magic-gold);
+      color: #fff;
+      box-shadow: 0 0 15px var(--magic-gold-dim);
+    }
+
+    .login-crest-btn {
+      background: linear-gradient(135deg, rgba(226, 183, 101, 0.9), rgba(184, 134, 45, 0.9));
+      border: 1px solid var(--magic-gold);
+      border-radius: 4px;
+      padding: 9px 24px;
+      font-family: var(--font-mincho);
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      color: #100d08;
+      text-decoration: none;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6), 0 0 20px var(--magic-gold-dim);
+      transition: all 0.3s ease;
+    }
+    .login-crest-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 25px rgba(226, 183, 101, 0.4), 0 0 25px #fff;
+    }
+
+    /* ==========================================================================
+       6. HERO SCENE: CINEMATIC OPENING (劇場版 映画的演出)
+       ========================================================================== */
+    .cinema-hero {
+      position: relative;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 140px 24px 100px;
+      z-index: 10;
+      text-align: center;
+    }
+
+    /* Vertical Japanese Side Inscription */
+    .vertical-inscription-left, .vertical-inscription-right {
+      position: fixed;
+      top: 50%;
+      transform: translateY(-50%);
+      font-family: var(--font-mincho);
+      font-size: 0.78rem;
+      writing-mode: vertical-rl;
+      letter-spacing: 0.45em;
+      color: rgba(226, 219, 206, 0.35);
+      pointer-events: none;
+      z-index: 10;
+      text-shadow: 0 0 10px rgba(0, 0, 0, 0.8);
+    }
+    .vertical-inscription-left { left: 42px; }
+    .vertical-inscription-right { right: 42px; }
+
+    /* Japanese Title Layout with Real Film Aesthetics */
+    .episode-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      font-family: var(--font-mincho);
+      font-size: 0.88rem;
+      letter-spacing: 0.35em;
+      color: var(--magic-gold);
+      margin-bottom: 24px;
+      padding: 6px 20px;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(226, 183, 101, 0.25);
+      border-radius: 2px;
+      box-shadow: 0 0 25px rgba(0,0,0,0.5);
+    }
+
+    .main-jp-title {
+      font-family: var(--font-mincho);
+      font-size: clamp(3rem, 7.5vw, 6.5rem);
+      font-weight: 900;
+      line-height: 1.15;
+      letter-spacing: 0.12em;
+      color: #ffffff;
+      text-shadow: 0 4px 30px rgba(0, 0, 0, 0.9), 0 0 40px rgba(255, 255, 255, 0.2);
+      margin-bottom: 12px;
+    }
+    .main-jp-title span.accent {
+      color: var(--magic-gold);
+      background: linear-gradient(180deg, #fff 20%, var(--magic-gold) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      filter: drop-shadow(0 0 25px var(--magic-gold-dim));
+    }
+
+    .sub-jp-tagline {
+      font-family: var(--font-mincho);
+      font-size: clamp(1.1rem, 2.4vw, 1.85rem);
+      font-weight: 700;
+      letter-spacing: 0.32em;
+      color: var(--text-warm);
+      opacity: 0.9;
+      margin-bottom: 36px;
+      text-shadow: 0 2px 15px rgba(0, 0, 0, 0.9);
+    }
+
+    .hero-narrative-text {
+      max-width: 680px;
+      font-family: var(--font-mincho);
+      font-size: 1.05rem;
+      line-height: 2.1;
+      color: var(--text-muted);
+      margin: 0 auto 48px;
+      text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+    }
+    .hero-narrative-text b {
+      color: var(--magic-gold);
+      font-weight: 700;
+    }
+
+    /* Cinematic CTA Group */
+    .cinema-cta-box {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      margin-bottom: 60px;
+    }
+
+    .gate-enter-btn {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      gap: 14px;
+      padding: 16px 44px;
+      font-family: var(--font-mincho);
+      font-size: 1.05rem;
+      font-weight: 800;
+      letter-spacing: 0.2em;
+      color: #0b0905;
+      background: linear-gradient(180deg, #f7e6be 0%, #d4a753 100%);
+      border: 1px solid #ffe3a3;
+      border-radius: 3px;
+      cursor: pointer;
+      text-decoration: none;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8), 0 0 30px rgba(226, 183, 101, 0.4);
+      transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .gate-enter-btn:hover {
+      transform: translateY(-3px) scale(1.02);
+      box-shadow: 0 15px 40px rgba(0, 0, 0, 0.9), 0 0 45px rgba(226, 183, 101, 0.7);
+    }
+
+    .scene-trigger-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 16px 32px;
+      font-family: var(--font-mincho);
+      font-size: 0.95rem;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      color: var(--magic-gold);
+      background: rgba(14, 18, 28, 0.75);
+      border: 1px solid rgba(226, 183, 101, 0.35);
+      border-radius: 3px;
+      cursor: pointer;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+      transition: all 0.3s ease;
+    }
+    .scene-trigger-btn:hover {
+      background: rgba(226, 183, 101, 0.15);
+      border-color: var(--magic-gold);
+      color: #fff;
+      box-shadow: 0 0 30px var(--magic-gold-dim);
+      transform: translateY(-2px);
+    }
+
+    /* Six-Faced World Telemetry (甲竜暦 417年 天文台観測) */
+    .chronicle-bar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 36px;
+      padding: 16px 36px;
+      background: rgba(11, 14, 22, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 4px;
+      backdrop-filter: blur(16px);
+    }
+    .chronicle-node {
+      text-align: left;
+    }
+    .chronicle-node .c-label {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      letter-spacing: 0.15em;
+      margin-bottom: 2px;
+    }
+    .chronicle-node .c-val {
+      font-family: var(--font-display);
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: var(--text-warm);
+    }
+
+    /* ==========================================================================
+       7. SCENE CHANGER TABS (四つの世界篇章)
+       ========================================================================== */
+    .scene-chapters-section {
+      position: relative;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 60px 24px 120px;
+      z-index: 10;
+    }
+
+    .chapter-heading {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+    .chapter-sub {
+      font-size: 0.78rem;
+      letter-spacing: 0.4em;
+      color: var(--magic-gold);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .chapter-title {
+      font-size: 2.2rem;
+      font-weight: 900;
+      color: #fff;
+      letter-spacing: 0.15em;
+    }
+
+    .scene-cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 24px;
+    }
+
+    .scene-card {
+      position: relative;
+      background: rgba(12, 16, 26, 0.75);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 6px;
+      padding: 30px 24px;
+      cursor: pointer;
+      overflow: hidden;
+      backdrop-filter: blur(12px);
+      transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .scene-card:hover {
+      transform: translateY(-6px);
+      border-color: var(--magic-gold);
+      box-shadow: 0 15px 40px rgba(0, 0, 0, 0.7), 0 0 25px var(--magic-gold-dim);
+    }
+    .scene-card.active {
+      border-color: var(--magic-gold);
+      background: rgba(20, 26, 42, 0.9);
+      box-shadow: 0 0 35px var(--magic-gold-dim);
+    }
+
+    .sc-index {
+      font-family: var(--font-display);
+      font-size: 0.75rem;
+      color: var(--magic-gold);
+      letter-spacing: 0.2em;
+      margin-bottom: 12px;
+    }
+    .sc-name {
+      font-size: 1.35rem;
+      font-weight: 800;
+      color: #fff;
+      letter-spacing: 0.1em;
+      margin-bottom: 8px;
+    }
+    .sc-jp-sub {
+      font-size: 0.75rem;
+      color: var(--magic-gold);
+      letter-spacing: 0.15em;
+      margin-bottom: 14px;
+    }
+    .sc-desc {
+      font-size: 0.85rem;
+      line-height: 1.8;
+      color: var(--text-muted);
+    }
+
+    /* ==========================================================================
+       8. CHANTING INSCRIPTION (水聖級魔術 詠唱の書)
+       ========================================================================== */
+    .grimoire-section {
+      background: linear-gradient(180deg, transparent, rgba(5, 7, 12, 0.9) 30%, transparent);
+      padding: 80px 24px 120px;
+      position: relative;
+      z-index: 10;
+    }
+
+    .grimoire-box {
+      max-width: 860px;
+      margin: 0 auto;
+      background: rgba(9, 12, 20, 0.85);
+      border: 1px solid rgba(226, 183, 101, 0.25);
+      border-radius: 4px;
+      padding: 40px 36px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.85);
+      position: relative;
+    }
+    .grimoire-box::before {
+      content: '「無詠唱・魔導中枢」';
+      position: absolute;
+      top: -12px;
+      left: 36px;
+      padding: 2px 14px;
+      background: var(--bg-dark);
+      border: 1px solid rgba(226, 183, 101, 0.4);
+      font-size: 0.75rem;
+      letter-spacing: 0.25em;
+      color: var(--magic-gold);
+    }
+
+    .chanting-poem {
+      font-family: var(--font-mincho);
+      font-size: 1.05rem;
+      line-height: 2.2;
+      color: #e5ded0;
+      letter-spacing: 0.18em;
+      margin-bottom: 28px;
+      border-left: 2px solid var(--magic-gold);
+      padding-left: 20px;
+    }
+
+    .terminal-code-block {
+      background: rgba(3, 4, 7, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 4px;
+      padding: 20px;
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      line-height: 1.7;
+      color: #d1d5db;
+      overflow-x: auto;
+      position: relative;
+    }
+    .code-comment { color: #6b7280; font-style: italic; }
+    .code-kw { color: #e0a96d; }
+    .code-str { color: #4deeea; }
+
+    .copy-ink-btn {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      background: rgba(226, 183, 101, 0.12);
+      border: 1px solid rgba(226, 183, 101, 0.3);
+      padding: 6px 14px;
+      font-family: var(--font-mincho);
+      font-size: 0.75rem;
+      color: var(--magic-gold);
+      cursor: pointer;
+      border-radius: 3px;
+      transition: all 0.2s;
+    }
+    .copy-ink-btn:hover {
+      background: var(--magic-gold);
+      color: #000;
+    }
+
+    /* ==========================================================================
+       9. FOOTER (劇終 版権表示)
+       ========================================================================== */
+    .anime-footer {
+      padding: 60px 24px 90px;
+      text-align: center;
+      font-family: var(--font-mincho);
+      font-size: 0.8rem;
+      color: #636b7b;
+      letter-spacing: 0.15em;
+      line-height: 2;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .footer-links {
+      display: flex;
+      justify-content: center;
+      gap: 28px;
+      margin-bottom: 16px;
+    }
+    .footer-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    .footer-links a:hover {
+      color: var(--magic-gold);
+    }
+
+    @media (max-width: 768px) {
+      .cinema-bar-top, .cinema-bar-bottom { height: 32px; padding: 0 16px; font-size: 0.55rem; }
+      .anime-header { top: 32px; padding: 12px 18px; }
+      .vertical-inscription-left, .vertical-inscription-right { display: none; }
+      .main-jp-title { font-size: 2.7rem; }
+      .sub-jp-tagline { font-size: 1.1rem; }
+      .hero-narrative-text { font-size: 0.95rem; }
+      .grimoire-circle-wrapper { width: 420px; height: 420px; }
+    }
+  </style>
+</head>
+<body data-scene="fittoa">
+
+  <!-- Cinema 21:9 Letterbox Top Bar -->
+  <div class="cinema-bar-top">
+    <span>ANIME MOTION PICTURE • MUSHOKU TENSEI</span>
+    <span>SIX-FACED WORLD • 甲竜暦417年</span>
+  </div>
+
+  <!-- Film Grain & Atmospheric Lights -->
+  <div class="film-grain"></div>
+  <div class="vignette"></div>
+  <div class="lens-flare"></div>
+  <canvas id="ambient-canvas"></canvas>
+
+  <!-- Side Inscriptions (Vertical Japanese) -->
+  <div class="vertical-inscription-left">
+    人は誰しも、生まれ変わったら本気を出すと誓う。
+  </div>
+  <div class="vertical-inscription-right">
+    六面世界を越え、万象の魔力を束ねる。
+  </div>
+
+  <!-- Rotating Ancient Magic Circle -->
+  <div class="grimoire-circle-wrapper">
+    <svg class="grimoire-svg" viewBox="0 0 1000 1000" fill="none" stroke="var(--magic-gold)">
+      <!-- Outer Inscription Ring -->
+      <g class="spin-slow" stroke-width="1.2" stroke-opacity="0.65">
+        <circle cx="500" cy="500" r="470" stroke-dasharray="10 14" />
+        <circle cx="500" cy="500" r="445" />
+        <polygon points="500,30 905,732 95,732" stroke-opacity="0.35" />
+        <polygon points="500,970 95,268 905,268" stroke-opacity="0.35" />
+      </g>
+      <!-- Middle Runic Ring -->
+      <g class="spin-rev" stroke-width="1.8" stroke-opacity="0.8">
+        <circle cx="500" cy="500" r="340" stroke-dasharray="24 12" />
+        <circle cx="500" cy="500" r="300" />
+        <rect x="288" y="288" width="424" height="424" transform="rotate(45 500 500)" stroke-opacity="0.3" />
+      </g>
+      <!-- Inner Core -->
+      <g class="spin-slow" stroke-width="1.5" stroke-opacity="0.9">
+        <circle cx="500" cy="500" r="190" />
+        <polygon points="500,340 638,580 362,580" stroke-opacity="0.5" />
+        <polygon points="500,660 362,420 638,420" stroke-opacity="0.5" />
+      </g>
+    </svg>
+  </div>
+
+  <!-- Japanese Opening Header -->
+  <header class="anime-header">
+    <a href="#" class="title-group">
+      <div class="anime-seal">
+        <span>転</span>
+      </div>
+      <div class="title-text-box">
+        <h1>無職転生</h1>
+        <span>SUB2API MANA GATEWAY</span>
+      </div>
+    </a>
+
+    <div class="header-actions">
+      <!-- Classical Audio Synthesizer Toggle -->
+      <button id="harp-sound-btn" class="sound-btn" title="環境音と魔術奏鳴">
+        <span id="sound-icon">🎋</span>
+        <span id="sound-text">環境音：ON</span>
+      </button>
+
+      <!-- Enter Portal / Login -->
+      <a href="/login" class="login-crest-btn">
+        <span>魔導中枢へログイン</span>
+      </a>
+    </div>
+  </header>
+
+  <!-- Main Hero Scene -->
+  <main>
+    <section class="cinema-hero">
+      <!-- Episode Seal -->
+      <div class="episode-tag">
+        <span>第一章 • 幼年期から始まる再始動</span>
+      </div>
+
+      <!-- Grand Japanese Typography -->
+      <h1 class="main-jp-title">
+        無職転生 <span class="accent">~異世界行ったら本気だす~</span>
+      </h1>
+
+      <div class="sub-jp-tagline">
+        高并发・無詠唱ルーティング魔導基盤
+      </div>
+
+      <p class="hero-narrative-text">
+        かつての過ちを背負い、広大な六面世界へと降り立った魂たちへ。<br />
+        ミリ秒の遅延すら許さぬ<b>無詠唱モデルディスパッチ</b>と、<br />
+        何万ものリクエストを平穏に捌く<b>水聖級ロードバランサ</b>が、ここに集結する。
+      </p>
+
+      <!-- Action Buttons -->
+      <div class="cinema-cta-box">
+        <a href="/login" class="gate-enter-btn" id="main-enter-btn">
+          <span>次元契約を結ぶ (LOGIN)</span>
+          <span style="font-family: sans-serif; font-size: 1.2rem;">→</span>
+        </a>
+
+        <button class="scene-trigger-btn" id="calamity-trigger-btn">
+          <span>⚡ フィトア領 転移災害 (CALAMITY)</span>
+        </button>
+      </div>
+
+      <!-- Chronicle Telemetry -->
+      <div class="chronicle-bar">
+        <div class="chronicle-node">
+          <div class="c-label">魔力流通帯域 (THROUGHPUT)</div>
+          <div class="c-val" id="val-tps">14,290 req/s</div>
+        </div>
+        <div class="chronicle-node">
+          <div class="c-label">無詠唱応答速度 (LATENCY)</div>
+          <div class="c-val"><span id="val-lat">16</span> ms</div>
+        </div>
+        <div class="chronicle-node">
+          <div class="c-label">結界稼働率 (UPTIME)</div>
+          <div class="c-val">99.998%</div>
+        </div>
+        <div class="chronicle-node">
+          <div class="c-label">世界観暦 (CALENDAR)</div>
+          <div class="c-val">甲竜暦 417年</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Four Story Chapters (四つの物語篇章) -->
+    <section class="scene-chapters-section">
+      <div class="chapter-heading">
+        <div class="chapter-sub">SCENE SELECTION • 篇章切替</div>
+        <h2 class="chapter-title">六面世界の軌跡</h2>
+      </div>
+
+      <div class="scene-cards-grid">
+        <!-- 1. Fittoa -->
+        <div class="scene-card active" data-target-scene="fittoa">
+          <div class="sc-index">SCENE I</div>
+          <div class="sc-name">フィトア領の朝光</div>
+          <div class="sc-jp-sub">ルーデウス・グレーラット • 幼年期</div>
+          <div class="sc-desc">暖かな日差しと麦畑。無詠唱魔術の発見と、一歩を踏み出す勇気。低遅延な基幹接続。</div>
+        </div>
+
+        <!-- 2. Calamity -->
+        <div class="scene-card" data-target-scene="calamity">
+          <div class="sc-index">SCENE II</div>
+          <div class="sc-name">天変地異 • 転移災害</div>
+          <div class="sc-jp-sub">ロア上空の魔力球 • 大転移</div>
+          <div class="sc-desc">紫紺の魔力光柱が天を裂く。瞬時の高負荷耐性と全自動フェイルオーバー。</div>
+        </div>
+
+        <!-- 3. Demon -->
+        <div class="scene-card" data-target-scene="demon">
+          <div class="sc-index">SCENE III</div>
+          <div class="sc-name">魔大陸の赤き黄昏</div>
+          <div class="sc-jp-sub">エリス＆ルイジェルド • デッドエンド</div>
+          <div class="sc-desc">過酷な大地を越える冒険。極限環境下でも決して途切れない高堅牢ルーティング。</div>
+        </div>
+
+        <!-- 4. Ranoa -->
+        <div class="scene-card" data-target-scene="ranoa">
+          <div class="sc-index">SCENE IV</div>
+          <div class="sc-name">ラノア魔法大学の雪</div>
+          <div class="sc-jp-sub">シルフィエット • 静寂と再会</div>
+          <div class="sc-desc">降りしきる静寂の粉雪。多租戸暗号化と完全なセキュリティ保護。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Chanting Spell & Inscription -->
+    <section class="grimoire-section">
+      <div class="grimoire-box">
+        <div class="chanting-poem">
+          大いなる水の精霊にして、天に昇りし雷雲の使徒よ。<br />
+          我が意に応え、高天原より豪雨と雷撃を降らせたまえ ——<br />
+          <b>「水聖級魔術・豪雷積雲（クラッシュ・スレート）！」</b>
+        </div>
+
+        <div class="terminal-code-block">
+          <button class="copy-ink-btn" id="copy-spell-btn">詠唱を筆写 (COPY)</button>
+          <pre><code><span class="code-comment"># 甲竜暦 417年 • 無詠唱 API 呼び出し実例</span>
+<span class="code-kw">curl</span> https://api.your-domain.com/v1/chat/completions \
+  -H <span class="code-str">"Authorization: Bearer sk-mushoku-mana-token"</span> \
+  -H <span class="code-str">"Content-Type: application/json"</span> \
+  -d <span class="code-str">'{
+    "model": "claude-3-7-sonnet-20250219",
+    "messages": [{"role": "user", "content": "フィトア領の魔力回路を展開せよ"}]
+  }'</span></code></pre>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="anime-footer">
+    <div class="footer-links">
+      <a href="/login">魔導中枢 (Login)</a>
+      <a href="/register">魂の刻印 (Register)</a>
+      <a href="/docs">詠唱手引書 (Docs)</a>
+      <a href="https://github.com/xiaoli0412/sub2api-pureai" target="_blank">GitHub</a>
+    </div>
+    <div>&copy; 2026 Sub2API. Inspired by 理不尽な孫の手『無職転生 〜異世界行ったら本気だす〜』.</div>
+  </footer>
+
+  <!-- Cinema 21:9 Letterbox Bottom Bar -->
+  <div class="cinema-bar-bottom">
+    <span>CINEMA SCOPE 2.39:1 • 35MM GRAIN</span>
+    <span>ALL RIGHTS RESERVED</span>
+  </div>
+
+  <!-- ==========================================================================
+       10. JAPANESE CINEMATIC AUDIO & PARTICLES ENGINE
+       ========================================================================== */ -->
+  <script>
+    /* --------------------------------------------------------------------------
+       A. Atmospheric Japanese Ethereal Chime Engine (Web Audio API)
+       -------------------------------------------------------------------------- */
+    let audioCtx = null;
+    let soundEnabled = true;
+
+    function initAudio() {
+      if (!audioCtx) {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (AudioContext) audioCtx = new AudioContext();
+      }
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    // Play Japanese temple chime / magic glass resonance
+    function playChime(freq = 523.25, duration = 1.8) {
+      if (!soundEnabled) return;
+      try {
+        initAudio();
+        if (!audioCtx) return;
+
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        
+        // Ethereal Sine with harmonic warmth
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        
+        gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+      } catch (e) {
+        console.warn(e);
+      }
+    }
+
+    // Sound toggle button
+    const soundBtn = document.getElementById('harp-sound-btn');
+    const soundText = document.getElementById('sound-text');
+    const soundIcon = document.getElementById('sound-icon');
+
+    soundBtn.addEventListener('click', () => {
+      initAudio();
+      soundEnabled = !soundEnabled;
+      soundText.textContent = soundEnabled ? '環境音：ON' : '環境音：OFF';
+      soundIcon.textContent = soundEnabled ? '🎋' : '🔇';
+      if (soundEnabled) playChime(659.25, 2.0); // E5 note
+    });
+
+    /* --------------------------------------------------------------------------
+       B. Floating Dust Motes & Sunlight Bokeh (Canvas Ambient)
+       -------------------------------------------------------------------------- */
+    const canvas = document.getElementById('ambient-canvas');
+    const ctx = canvas.getContext('2d');
+
+    let motes = [];
+    const moteCount = window.innerWidth < 768 ? 35 : 70;
+
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    class DustMote {
+      constructor() {
+        this.reset();
+      }
+      reset() {
+        this.x = Math.random() * canvas.width;
+        this.y = Math.random() * canvas.height;
+        this.vx = (Math.random() - 0.5) * 0.4;
+        this.vy = -Math.random() * 0.5 - 0.2; // slow rising warm air
+        this.size = Math.random() * 2.5 + 1.0;
+        this.alpha = Math.random() * 0.6 + 0.2;
+        this.pulse = Math.random() * 0.02 + 0.01;
+      }
+      update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.alpha += Math.sin(Date.now() * this.pulse) * 0.01;
+
+        if (this.y < 0 || this.x < 0 || this.x > canvas.width) {
+          this.reset();
+          this.y = canvas.height + 10;
+        }
+      }
+      draw() {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(245, 226, 185, ${Math.max(0.05, Math.min(0.8, this.alpha))})`;
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = 'rgba(226, 183, 101, 0.6)';
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    for (let i = 0; i < moteCount; i++) {
+      motes.push(new DustMote());
+    }
+
+    function renderAtmosphere() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      motes.forEach(m => {
+        m.update();
+        m.draw();
+      });
+      requestAnimationFrame(renderAtmosphere);
+    }
+    renderAtmosphere();
+
+    /* --------------------------------------------------------------------------
+       C. Four Story Scenes Switcher
+       -------------------------------------------------------------------------- */
+    const sceneCards = document.querySelectorAll('.scene-card');
+    sceneCards.forEach(card => {
+      card.addEventListener('click', () => {
+        sceneCards.forEach(c => c.classList.remove('active'));
+        card.classList.add('active');
+
+        const scene = card.dataset.targetScene;
+        document.body.dataset.scene = scene;
+
+        // Play authentic chord tone
+        if (scene === 'fittoa') playChime(523.25, 2.0); // C5
+        if (scene === 'calamity') playChime(392.00, 2.5); // G4
+        if (scene === 'demon') playChime(440.00, 2.2); // A4
+        if (scene === 'ranoa') playChime(587.33, 2.0); // D5
+      });
+    });
+
+    // Calamity Trigger
+    const calamityBtn = document.getElementById('calamity-trigger-btn');
+    calamityBtn.addEventListener('click', () => {
+      document.body.dataset.scene = 'calamity';
+      sceneCards.forEach(c => c.classList.remove('active'));
+      const calCard = document.querySelector('[data-target-scene="calamity"]');
+      if (calCard) calCard.classList.add('active');
+      
+      playChime(329.63, 3.0); // E4 deep resonance
+      setTimeout(() => playChime(659.25, 2.5), 100);
+    });
+
+    /* --------------------------------------------------------------------------
+       D. Copy Spell Inscription
+       -------------------------------------------------------------------------- */
+    const copyBtn = document.getElementById('copy-spell-btn');
+    copyBtn.addEventListener('click', () => {
+      const code = `curl https://api.your-domain.com/v1/chat/completions \\
+  -H "Authorization: Bearer sk-mushoku-mana-token" \\
+  -H "Content-Type: application/json" \\
+  -d '{"model": "claude-3-7-sonnet-20250219", "messages": [{"role": "user", "content": "フィトア領の魔力回路を展開せよ"}]}'`;
+
+      navigator.clipboard.writeText(code).then(() => {
+        copyBtn.textContent = '墨書完了 (COPIED)';
+        playChime(880, 0.8);
+        setTimeout(() => {
+          copyBtn.textContent = '詠唱を筆写 (COPY)';
+        }, 2000);
+      });
+    });
+
+    /* --------------------------------------------------------------------------
+       E. Chronicle Live Telemetry Simulation
+       -------------------------------------------------------------------------- */
+    setInterval(() => {
+      const tpsEl = document.getElementById('val-tps');
+      const latEl = document.getElementById('val-lat');
+      if (tpsEl) {
+        const randTps = (14200 + Math.floor(Math.random() * 800)).toLocaleString();
+        tpsEl.textContent = `${randTps} req/s`;
+      }
+      if (latEl) {
+        latEl.textContent = Math.floor(14 + Math.random() * 5);
+      }
+    }, 3000);
+  </script>
+</body>
+</html>

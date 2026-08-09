@@ -31,6 +31,15 @@ const routes: RouteRecordRaw[] = [
 
   // ==================== Public Routes ====================
   {
+    path: '/mushoku-tensei',
+    name: 'MushokuTensei',
+    component: () => import('@/views/public/MushokuTenseiView.vue'),
+    meta: {
+      requiresAuth: false,
+      title: 'Mushoku Tensei MAD Home'
+    }
+  },
+  {
     path: '/home',
     name: 'Home',
     component: () => import('@/views/HomeView.vue'),
@@ -498,6 +507,18 @@ const routes: RouteRecordRaw[] = [
       requiresAdmin: false,
       title: 'Channel Status',
       titleKey: 'nav.channelStatus'
+    }
+  },
+  {
+    path: '/admin/model-pricing',
+    name: 'AdminModelPricing',
+    component: () => import('@/views/admin/ModelPricingView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Global Model Pricing',
+      titleKey: 'admin.modelPricing.title',
+      descriptionKey: 'admin.modelPricing.description'
     }
   },
   {

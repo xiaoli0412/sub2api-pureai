@@ -34,6 +34,7 @@ import affiliatesAPI from './affiliates'
 import riskControlAPI from './riskControl'
 import adminComplianceAPI from './compliance'
 import auditAPI from './audit'
+import modelPricingAPI from './modelPricing'
 
 /**
  * Unified admin API object for convenient access
@@ -69,7 +70,8 @@ export const adminAPI = {
   affiliates: affiliatesAPI,
   riskControl: riskControlAPI,
   compliance: adminComplianceAPI,
-  audit: auditAPI
+  audit: auditAPI,
+  modelPricing: modelPricingAPI
 }
 
 export {
@@ -103,12 +105,22 @@ export {
   affiliatesAPI,
   riskControlAPI,
   adminComplianceAPI,
-  auditAPI
+  auditAPI,
+  modelPricingAPI
 }
 
 export default adminAPI
 
-// Re-export types used by components
+export type {
+  LiteLLMModelPricing,
+  ModelPricingFieldKey,
+  ModelPricingFieldValues,
+  ModelPricingItem,
+  ModelPricingListResponse,
+  ModelPricingOverride,
+  ModelPricingUpdate,
+} from './modelPricing'
+
 export type { AuditLog, AuditLogQuery, AuditLogListResponse } from './audit'
 export type { BalanceHistoryItem } from './users'
 export type { ErrorPassthroughRule, CreateRuleRequest, UpdateRuleRequest } from './errorPassthrough'

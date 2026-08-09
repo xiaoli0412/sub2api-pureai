@@ -98,6 +98,15 @@
 
         <!-- Nav Actions -->
         <div class="flex items-center gap-3">
+          <!-- Mushoku Tensei MAD Custom Home Entry -->
+          <router-link
+            to="/mushoku-tensei"
+            class="hidden sm:inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-xs font-semibold text-cyan-600 transition-all hover:bg-cyan-500 hover:text-white dark:text-cyan-400 dark:hover:bg-cyan-500/30 dark:hover:text-cyan-200 shadow-sm"
+          >
+            <span>🔮</span>
+            <span>无职转生 MAD 首页</span>
+          </router-link>
+
           <!-- Language Switcher -->
           <LocaleSwitcher />
 

@@ -200,14 +200,17 @@ type OpsSystemLogFilter struct {
 	EndTime   *time.Time
 	Host      string
 
-	Level     string
-	Component string
+	Level      string
+	Component  string
+	Components []string
 
 	RequestID       string
 	ClientRequestID string
 	UserID          *int64
+	UserIDs         []int64
 	APIKeyID        *int64
 	AccountID       *int64
+	AccountIDs      []int64
 	Platform        string
 	Model           string
 	Query           string

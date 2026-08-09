@@ -633,6 +633,13 @@ func (s *OpsService) GetErrorLogs(ctx context.Context, filter *OpsErrorLogFilter
 	return result, nil
 }
 
+// ListAstrBotLogs reuses the Ops error-log query for the scoped AstrBot API.
+// Authorization dimensions are carried by the filter and enforced by the
+// repository so callers cannot broaden a token's resource intersection.
+func (s *OpsService) ListAstrBotLogs(ctx context.Context, filter *OpsErrorLogFilter) (*OpsErrorLogList, error) {
+	return s.GetErrorLogs(ctx, filter)
+}
+
 // ListUserErrorRequests 返回某个用户自己的错误请求（精简脱敏）。
 // 强制：仅当前用户、View=all（含业务限流/余额类）、排除 count_tokens 噪声。
 func (s *OpsService) ListUserErrorRequests(ctx context.Context, userID int64, filter *OpsErrorLogFilter) (*UserErrorRequestList, error) {

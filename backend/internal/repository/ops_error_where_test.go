@@ -38,6 +38,17 @@ func TestBuildOpsErrorLogsWhere_UserScopedFilters(t *testing.T) {
 	}
 }
 
+func TestBuildOpsErrorLogsWhere_AccountIDsUseArrayPredicate(t *testing.T) {
+	where, args := buildOpsErrorLogsWhere(&service.OpsErrorLogFilter{AccountIDs: []int64{7, 11}})
+
+	if !strings.Contains(where, "e.account_id = ANY($1)") {
+		t.Fatalf("account ID scope should use a valid ANY predicate, got: %s", where)
+	}
+	if len(args) != 1 {
+		t.Fatalf("expected one array argument, got %d", len(args))
+	}
+}
+
 func TestBuildOpsErrorLogsWhere_ModelFuzzy(t *testing.T) {
 	// 默认（ModelFuzzy=false）保持精确匹配
 	exact := &service.OpsErrorLogFilter{Model: "claude"}

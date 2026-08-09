@@ -65,7 +65,7 @@ Scopes are exact and independent:
 
 `bot:read` does not imply `bot:write`, and `bot:write` does not imply `bot:read`.
 
-An empty resource allowlist preserves unrestricted administrator behavior. A non-empty allowlist is restrictive: a token may access only explicitly listed accounts, channels, groups, users, or log sources. An omitted resource category does not expand another category. Unauthorized or nonexistent resources use the same `404` response to avoid enumeration. Global aggregates such as costs, profit, consumption, and model prices require an unrestricted token unless a resource-aware endpoint is added.
+An empty resource allowlist preserves unrestricted administrator behavior only when the deployment deliberately permits it. A non-empty allowlist is restrictive: a token may access only explicitly listed accounts, channels, groups, users, or log sources. An omitted resource category does not expand another category. Unauthorized or nonexistent resources use the same `404` response to avoid enumeration. Global aggregates such as costs, profit, consumption, and model prices require an unrestricted token unless a resource-aware endpoint is added.
 
 ## Signed requests and replay protection
 
@@ -110,7 +110,12 @@ GET /api/v1/bot/models/prices
 
 Cost, profit, and consumption default to the previous 24 hours in UTC. Supply RFC3339 `start` and `end` to select another range; the maximum range is 366 days. Account responses exclude credentials, proxy secrets, arbitrary `extra` data, and raw upstream errors. Model prices expose only configured public price fields.
 
-## Double-confirmed writes
+## Model audit and proactive delivery
+
+The read-only `GET /api/v1/bot/model-audit` endpoint reports `total_requests`, `observed_requests`, `mismatch_count`, `match_count`, `mismatch_rate`, `no_response_model_count`, bounded aggregates, and bounded samples. `upstream_model_mismatch` is tri-state: `null` means no upstream response model was observed, `false` means an observed model matched, and `true` means it differed. The `mismatch=true|false` filter matches only the corresponding Boolean value; `NULL` is not treated as false. The compatibility `model-mismatches` command is the same read with `mismatch=true`.
+
+The AstrBot plugin may poll with bounded `audit_schedules` and deterministic `alert_rules`. Each schedule has explicit targets, a bounded interval, a fixed `today`, `last24h`, or RFC3339 window, and bounded query filters. The plugin persists schedule slots and delivery rows in SQLite, uses owner leases and bounded retries, and never lets AI or returned operational data choose targets or execute writes. Delivery is at-least-once rather than exactly-once: a successful external send followed by a process failure can be delivered again.
+
 
 Every write requires `bot:write` and a unique `Idempotency-Key`. The explicit command flow is:
 

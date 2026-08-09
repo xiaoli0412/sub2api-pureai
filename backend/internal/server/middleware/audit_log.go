@@ -124,6 +124,8 @@ var auditSensitiveReads = map[string]string{
 	"GET /api/v1/bot/channels/status":             "astrbot.channels.status.read",
 	"GET /api/v1/bot/accounts/status":             "astrbot.accounts.status.read",
 	"GET /api/v1/bot/models/prices":               "astrbot.models.prices.read",
+	"GET /api/v1/bot/model-audit":                 "astrbot.model_audit.read",
+	"GET /api/v1/bot/logs":                        "astrbot.logs.read",
 }
 
 // auditActionOverrides 变更类请求的动作名精确映射（未命中时自动推导）。

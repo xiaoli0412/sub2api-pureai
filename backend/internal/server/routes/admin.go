@@ -104,6 +104,7 @@ func RegisterAdminRoutes(
 
 		// 渠道管理
 		registerChannelRoutes(admin, h)
+		registerModelPricingRoutes(admin, h)
 
 		// 渠道监控
 		registerChannelMonitorRoutes(admin, h)
@@ -731,6 +732,15 @@ func registerChannelRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		channels.POST("", h.Admin.Channel.Create)
 		channels.PUT("/:id", h.Admin.Channel.Update)
 		channels.DELETE("/:id", h.Admin.Channel.Delete)
+	}
+}
+
+func registerModelPricingRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	pricing := admin.Group("/model-pricing")
+	{
+		pricing.GET("", h.Admin.ModelPricing.List)
+		pricing.PUT("/:model", h.Admin.ModelPricing.Update)
+		pricing.DELETE("/:model", h.Admin.ModelPricing.ResetDefault)
 	}
 }
 

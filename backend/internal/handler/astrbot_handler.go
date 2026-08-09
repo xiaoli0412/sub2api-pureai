@@ -31,6 +31,7 @@ type AstrBotHandler struct {
 	idempotency *service.IdempotencyCoordinator
 	audit       *service.AuditLogService
 	operations  *service.AstrBotOperationService
+	ops         *service.OpsService
 }
 
 func NewAstrBotHandler(
@@ -43,8 +44,9 @@ func NewAstrBotHandler(
 	idempotency *service.IdempotencyCoordinator,
 	audit *service.AuditLogService,
 	operations *service.AstrBotOperationService,
+	ops *service.OpsService,
 ) *AstrBotHandler {
-	return &AstrBotHandler{tokens: tokens, admin: admin, accounts: accounts, channels: channels, usage: usage, pricing: pricing, idempotency: idempotency, audit: audit, operations: operations}
+	return &AstrBotHandler{tokens: tokens, admin: admin, accounts: accounts, channels: channels, usage: usage, pricing: pricing, idempotency: idempotency, audit: audit, operations: operations, ops: ops}
 }
 
 type astrBotTokenDTO struct {
