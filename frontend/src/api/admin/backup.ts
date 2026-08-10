@@ -23,6 +23,7 @@ export interface BackupRecord {
   backup_type: string
   file_name: string
   s3_key: string
+  parts?: BackupPart[]
   size_bytes: number
   triggered_by: string
   error_message?: string
@@ -37,6 +38,24 @@ export interface BackupRecord {
   storage_type?: 's3' | 'local' | ''
   /** 本地备份文件绝对路径（仅 storage_type=local） */
   local_path?: string
+}
+
+export interface BackupPart {
+  index: number
+  s3_key: string
+  size_bytes: number
+  sha256?: string
+}
+
+export interface BackupDownloadPart {
+  index: number
+  size_bytes: number
+  url: string
+}
+
+export interface BackupDownloadResponse {
+  url?: string
+  parts?: BackupDownloadPart[]
 }
 
 export interface CreateBackupRequest {
@@ -152,8 +171,8 @@ export async function deleteBackup(id: string): Promise<void> {
   await apiClient.delete(`/admin/backups/${id}`)
 }
 
-export async function getDownloadURL(id: string): Promise<{ url: string }> {
-  const { data } = await apiClient.get<{ url: string }>(`/admin/backups/${id}/download-url`)
+export async function getDownloadURL(id: string): Promise<BackupDownloadResponse> {
+  const { data } = await apiClient.get<BackupDownloadResponse>(`/admin/backups/${id}/download-url`)
   return data
 }
 
