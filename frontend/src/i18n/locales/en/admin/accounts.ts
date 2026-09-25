@@ -255,6 +255,7 @@ export default {
         priority: 'Priority',
         billingRateMultiplier: 'Billing Rate',
         upstreamBillingRate: 'Upstream Declared Rate',
+        balance: 'Balance',
         weight: 'Weight',
         schedulerScore: 'Scheduler Score',
         status: 'Status',
