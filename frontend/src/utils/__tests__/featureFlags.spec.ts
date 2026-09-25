@@ -1,7 +1,17 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useAppStore } from '@/stores/app'
-import { FeatureFlags, isFeatureFlagEnabled, makeSidebarFlag, resolveFeatureFlag } from '@/utils/featureFlags'
+import {
+  FeatureFlags,
+  getChannelMonitorMode,
+  isChannelMonitorPassiveMode,
+  isChannelMonitorV1Mode,
+  isChannelMonitorV2Mode,
+  isChannelMonitorV3Mode,
+  isFeatureFlagEnabled,
+  makeSidebarFlag,
+  resolveFeatureFlag,
+} from '@/utils/featureFlags'
 import type { PublicSettings } from '@/types'
 
 vi.mock('@/api/admin/system', () => ({
@@ -61,5 +71,63 @@ describe('resolveFeatureFlag', () => {
   it('backs isFeatureFlagEnabled with the same resolution', () => {
     useAppStore().cachedPublicSettings = { subscription_enabled: false } as PublicSettings
     expect(isFeatureFlagEnabled(FeatureFlags.subscription)).toBe(false)
+  })
+})
+
+// V3 shares the passive aggregation pipeline with V2, so the two predicates must
+// stay distinct: isChannelMonitorV2Mode() gates "the V2 console", while
+// isChannelMonitorPassiveMode() gates "passive aggregation is running at all".
+describe('channel monitor mode resolution', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  function setMode(mode?: string, enabled = true) {
+    useAppStore().cachedPublicSettings = {
+      channel_monitor_enabled: enabled,
+      ...(mode === undefined ? {} : { channel_monitor_mode: mode }),
+    } as PublicSettings
+  }
+
+  it('resolves v3 and treats it as a passive mode', () => {
+    setMode('v3')
+    expect(getChannelMonitorMode()).toBe('v3')
+    expect(isChannelMonitorV3Mode()).toBe(true)
+    expect(isChannelMonitorPassiveMode()).toBe(true)
+    // V3 must not be reported as V2 or V1.
+    expect(isChannelMonitorV2Mode()).toBe(false)
+    expect(isChannelMonitorV1Mode()).toBe(false)
+  })
+
+  it('keeps v2 behaviour unchanged and also passive', () => {
+    setMode('v2')
+    expect(getChannelMonitorMode()).toBe('v2')
+    expect(isChannelMonitorV2Mode()).toBe(true)
+    expect(isChannelMonitorPassiveMode()).toBe(true)
+    expect(isChannelMonitorV3Mode()).toBe(false)
+  })
+
+  it('treats v1 as an active-probe mode, never passive', () => {
+    setMode('v1')
+    expect(getChannelMonitorMode()).toBe('v1')
+    expect(isChannelMonitorV1Mode()).toBe(true)
+    expect(isChannelMonitorPassiveMode()).toBe(false)
+    expect(isChannelMonitorV3Mode()).toBe(false)
+  })
+
+  it('falls back to v1 for a missing or unknown mode', () => {
+    setMode(undefined)
+    expect(getChannelMonitorMode()).toBe('v1')
+    setMode('v9')
+    expect(getChannelMonitorMode()).toBe('v1')
+    expect(isChannelMonitorV3Mode()).toBe(false)
+  })
+
+  it('reports every mode as disabled when the feature flag is off', () => {
+    setMode('v3', false)
+    expect(isChannelMonitorV1Mode()).toBe(false)
+    expect(isChannelMonitorV2Mode()).toBe(false)
+    expect(isChannelMonitorV3Mode()).toBe(false)
+    expect(isChannelMonitorPassiveMode()).toBe(false)
   })
 })

@@ -142,7 +142,7 @@ func RegisterUserRoutes(
 			monitors.GET("/:id/status", h.ChannelMonitor.GetStatus)
 		}
 
-		// V2 passive views require feature on + mode=v2.
+		// Passive views (V2 and V3) require feature on + mode=v2 or v3.
 		monitorV2 := authenticated.Group("/channel-monitor-v2")
 		monitorV2.Use(panelRateLimiter.Heavy())
 		monitorV2.Use(channelMonitorModeV2Guard(settingService))

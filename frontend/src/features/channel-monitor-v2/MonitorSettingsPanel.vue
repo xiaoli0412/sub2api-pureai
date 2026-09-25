@@ -26,7 +26,7 @@
     </header>
 
     <div
-      v-if="!systemModeV2"
+      v-if="!systemModePassive"
       class="rounded-2xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-900 dark:border-amber-800/50 dark:bg-amber-900/20 dark:text-amber-100"
       role="status"
     >
@@ -267,7 +267,7 @@ import Toggle from '@/components/common/Toggle.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
-import { getChannelMonitorMode, isChannelMonitorV2Mode } from '@/utils/featureFlags'
+import { getChannelMonitorMode, isChannelMonitorPassiveMode } from '@/utils/featureFlags'
 import {
   getConfig,
   updateConfig,
@@ -293,14 +293,16 @@ const errorCategories = MONITOR_ERROR_CATEGORIES
 const countedErrorCategoryCount = computed(
   () => errorCategories.length - (draft.value?.ignored_error_categories?.length || 0)
 )
-/** System settings mode must be v2 for aggregation to run; config remains editable for prep. */
-const systemModeV2 = computed(() => isChannelMonitorV2Mode())
+/** Passive aggregation runs under both V2 and V3; config stays editable otherwise for prep. */
+const systemModePassive = computed(() => isChannelMonitorPassiveMode())
 const systemModeLabel = computed(() => {
   if (!appStore.cachedPublicSettings?.channel_monitor_enabled) {
     return t('channelMonitorV2.settings.modeClosed')
   }
-  return getChannelMonitorMode() === 'v1'
-    ? t('channelMonitorV2.settings.modeV1')
+  const mode = getChannelMonitorMode()
+  if (mode === 'v1') return t('channelMonitorV2.settings.modeV1')
+  return mode === 'v3'
+    ? t('channelMonitorV2.settings.modeV3')
     : t('channelMonitorV2.settings.modeV2')
 })
 const defaultThresholds = {

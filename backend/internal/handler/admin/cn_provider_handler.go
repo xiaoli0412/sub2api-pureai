@@ -30,7 +30,13 @@ func NewCNProviderHandler(
 	}
 }
 
-// QueryQuota 查询 Coding Plan 滚动窗口用量（5h + weekly）。
+func (h *CNProviderHandler) BalanceService() *service.CNProviderBalanceService {
+	if h == nil {
+		return nil
+	}
+	return h.balanceService
+}
+
 func (h *CNProviderHandler) QueryQuota(c *gin.Context) {
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {

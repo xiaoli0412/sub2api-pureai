@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/stretchr/testify/require"
@@ -107,6 +108,42 @@ func TestCNProviderBalanceService_DeepSeekInvalidBalancePayloadDoesNotBecomeZero
 			require.Empty(t, repo.extraWrites, "invalid relay balance payload must not persist a synthetic zero balance")
 		})
 	}
+}
+
+func TestAccountBalanceSnapshot_LegacyExtraIsCompatible(t *testing.T) {
+	account := newDeepSeekBalanceProbeAccount()
+	value := 1.25
+	account.RateMultiplier = &value
+	account.Extra = map[string]any{
+		"deepseek_balance":            "12.5",
+		"deepseek_balance_currency":   "CNY",
+		"deepseek_balance_available":  true,
+		"deepseek_balance_updated_at": time.Now().UTC().Format(time.RFC3339),
+		"deepseek_balances": []any{
+			map[string]any{"currency": "CNY", "balance": "12.5"},
+			map[string]any{"currency": "USD", "balance": 3.2},
+		},
+	}
+
+	result := accountBalanceSnapshot(account)
+
+	require.Equal(t, "success", result.Status)
+	require.True(t, result.Success)
+	require.Equal(t, 12.5, result.Balance)
+	require.Equal(t, "CNY", result.Currency)
+	require.Len(t, result.Balances, 2)
+	require.Equal(t, 1.25, result.RateMultiplier)
+}
+
+func TestAccountBalanceSnapshot_UnsupportedUsesLocalMultiplier(t *testing.T) {
+	value := 0.8
+	account := &Account{Platform: PlatformZhipu, RateMultiplier: &value}
+
+	result := accountBalanceSnapshot(account)
+
+	require.Equal(t, "unsupported", result.Status)
+	require.Equal(t, 0.8, result.RateMultiplier)
+	require.False(t, result.Success)
 }
 
 func TestCNProviderBalanceService_DeepSeekValidZeroBalanceRemainsSuccessful(t *testing.T) {

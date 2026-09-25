@@ -378,6 +378,17 @@
               @probe="handleProbeUpstreamBilling(row)"
             />
           </template>
+          <template #cell-balance="{ row }">
+            <div class="min-w-[8rem] text-sm font-mono text-gray-700 dark:text-gray-300">
+              <template v-if="row.extra?.upstream_balance && typeof row.extra.upstream_balance === 'object'">
+                <span>{{ formatStoredBalance(row) }}</span>
+                <span v-if="isStoredBalanceStale(row)" class="ml-1 text-xs text-amber-600">{{ t('admin.accounts.balance.staleShort') }}</span>
+              </template>
+              <template v-else>
+                <span>{{ formatLegacyBalance(row) }}</span>
+              </template>
+            </div>
+          </template>
           <template #cell-priority="{ value }">
             <span class="text-sm text-gray-700 dark:text-gray-300">{{ value }}</span>
           </template>
@@ -455,8 +466,9 @@
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
+    <AccountBalanceModal :show="showBalance" :account="balanceAcc" @close="closeBalanceModal" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu :show="menu.show" :account="menu.acc" :anchor-rect="menu.anchorRect" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
+    <AccountActionMenu :show="menu.show" :account="menu.acc" :anchor-rect="menu.anchorRect" @close="menu.show = false" @test="handleTest" @balance="handleBalance" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
     <BulkEditAccountModal
@@ -512,6 +524,7 @@ import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
 import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
 import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
 import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
+import AccountBalanceModal from '@/components/admin/account/AccountBalanceModal.vue'
 import ScheduledTestsPanel from '@/components/admin/account/ScheduledTestsPanel.vue'
 import type { SelectOption } from '@/components/common/Select.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
@@ -601,6 +614,7 @@ const showCreateShadowDialog = ref(false)
 const showReAuth = ref(false)
 const showTest = ref(false)
 const showStats = ref(false)
+const showBalance = ref(false)
 const showErrorPassthrough = ref(false)
 const showTLSFingerprintProfiles = ref(false)
 const edAcc = ref<Account | null>(null)
@@ -610,6 +624,7 @@ const creatingShadowAcc = ref<Account | null>(null)
 const reAuthAcc = ref<Account | null>(null)
 const testingAcc = ref<Account | null>(null)
 const statsAcc = ref<Account | null>(null)
+const balanceAcc = ref<Account | null>(null)
 const showSchedulePanel = ref(false)
 const scheduleAcc = ref<Account | null>(null)
 const scheduleModelOptions = ref<SelectOption[]>([])
@@ -1800,6 +1815,7 @@ const allColumns = computed(() => {
     { key: 'scheduler_score', label: t('admin.accounts.columns.schedulerScore'), sortable: false },
     { key: 'rate_multiplier', label: t('admin.accounts.columns.billingRateMultiplier'), sortable: true },
     { key: 'upstream_billing_rate', label: t('admin.accounts.columns.upstreamBillingRate'), sortable: true },
+    { key: 'balance', label: t('admin.accounts.columns.balance'), sortable: false },
     { key: 'last_used_at', label: t('admin.accounts.columns.lastUsed'), sortable: true },
     { key: 'created_at', label: t('admin.accounts.columns.createdAt'), sortable: true },
     { key: 'expires_at', label: t('admin.accounts.columns.expiresAt'), sortable: true },
@@ -2309,7 +2325,29 @@ const handleExportData = async () => {
 const accountExportStepUp = useStepUp()
 const closeTestModal = () => { showTest.value = false; testingAcc.value = null }
 const closeStatsModal = () => { showStats.value = false; statsAcc.value = null }
+const closeBalanceModal = () => { showBalance.value = false; balanceAcc.value = null }
 const closeReAuthModal = () => { showReAuth.value = false; reAuthAcc.value = null }
+const formatStoredBalance = (row: AccountListItem): string => {
+  const raw = row.extra?.upstream_balance
+  if (!raw || typeof raw !== 'object') return formatLegacyBalance(row)
+  const snapshot = raw as Record<string, unknown>
+  if (snapshot.status === 'unsupported') return `${formatMultiplier(row.rate_multiplier ?? 1)}x (${t('admin.accounts.balance.unsupported')})`
+  const balance = typeof snapshot.balance === 'number' ? snapshot.balance : null
+  const currency = typeof snapshot.currency === 'string' ? snapshot.currency : ''
+  return balance == null ? '-' : `${currency || '-'} ${balance.toFixed(balance >= 100 ? 0 : 2)}`
+}
+const formatLegacyBalance = (row: AccountListItem): string => {
+  const raw = row.extra?.[`${row.platform}_balance`]
+  if (typeof raw === 'number') {
+    const currency = typeof row.extra?.[`${row.platform}_balance_currency`] === 'string' ? row.extra[`${row.platform}_balance_currency`] : '-'
+    return `${currency} ${raw.toFixed(raw >= 100 ? 0 : 2)}`
+  }
+  return ['kimi', 'deepseek'].includes(row.platform) ? '-' : `${formatMultiplier(row.rate_multiplier ?? 1)}x (${t('admin.accounts.balance.unsupported')})`
+}
+const isStoredBalanceStale = (row: AccountListItem): boolean => {
+  const raw = row.extra?.upstream_balance
+  return Boolean(raw && typeof raw === 'object' && (raw as Record<string, unknown>).stale === true)
+}
 const handleTest = async (a: AccountListItem) => {
   const account = await loadAccountDetails(a)
   if (!account) return
@@ -2321,6 +2359,12 @@ const handleViewStats = async (a: AccountListItem) => {
   if (!account) return
   statsAcc.value = account
   showStats.value = true
+}
+const handleBalance = async (a: AccountListItem) => {
+  const account = await loadAccountDetails(a)
+  if (!account) return
+  balanceAcc.value = account
+  showBalance.value = true
 }
 const handleSchedule = async (a: Account) => {
   scheduleAcc.value = a

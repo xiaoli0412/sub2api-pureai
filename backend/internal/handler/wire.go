@@ -51,6 +51,7 @@ func ProvideAdminHandlers(
 	ollamaCloudUsage *service.OllamaCloudUsageService,
 	opencodeGoUsage *service.OpenCodeGoUsageService,
 ) *AdminHandlers {
+	accountHandler.SetBalanceService(cnProviderHandler.BalanceService())
 	accountHandler.SetUpstreamBillingProbeService(upstreamBillingProbe)
 	accountHandler.SetOllamaCloudUsageService(ollamaCloudUsage)
 	accountHandler.SetOpenCodeGoUsageService(opencodeGoUsage)

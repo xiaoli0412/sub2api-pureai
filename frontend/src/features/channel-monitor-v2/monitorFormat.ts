@@ -63,6 +63,87 @@ export function formatMonitorPercent(value: number, locale = monitorIntlLocale()
   }).format((value || 0) * 100)}%`
 }
 
+/**
+ * One availability → colour ladder, shared by the V3 cards and timeline.
+ *
+ * The thresholds live in a single ordered table (worst → best) so the badge,
+ * the bar and the number can never disagree about where a band starts; adding
+ * a band is a one-line change instead of three parallel `if` ladders.
+ * `below` is an exclusive upper bound; the last band uses `Infinity`.
+ */
+interface MonitorAvailabilityBand {
+  below: number
+  badge: string
+  bar: string
+  text: string
+}
+
+/** Rendered when availability is missing, so it is never coloured as healthy. */
+const MONITOR_AVAILABILITY_UNKNOWN: Omit<MonitorAvailabilityBand, 'below'> = {
+  badge: 'bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-gray-300',
+  bar: 'bg-gray-300 dark:bg-dark-600',
+  text: 'text-gray-900 dark:text-gray-100',
+}
+
+const MONITOR_AVAILABILITY_BANDS: readonly MonitorAvailabilityBand[] = [
+  {
+    below: 30,
+    badge: 'bg-gray-950 text-white dark:bg-black dark:text-white',
+    bar: 'bg-gray-950 dark:bg-black',
+    text: 'text-gray-950 dark:text-white',
+  },
+  {
+    below: 50,
+    badge: 'bg-red-600 text-white dark:bg-red-500 dark:text-white',
+    bar: 'bg-red-500 dark:bg-red-400',
+    text: 'text-red-600 dark:text-red-400',
+  },
+  {
+    below: 60,
+    badge: 'bg-amber-200 text-amber-950 dark:bg-amber-500/80 dark:text-white',
+    bar: 'bg-amber-400 dark:bg-amber-300',
+    text: 'text-amber-700 dark:text-amber-300',
+  },
+  {
+    below: 80,
+    badge: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-500/20 dark:text-yellow-200',
+    bar: 'bg-yellow-300 dark:bg-yellow-200',
+    text: 'text-yellow-700 dark:text-yellow-300',
+  },
+  {
+    below: 90,
+    badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200',
+    bar: 'bg-emerald-400 dark:bg-emerald-300',
+    text: 'text-emerald-700 dark:text-emerald-300',
+  },
+  {
+    below: Infinity,
+    badge: 'bg-emerald-700 text-white dark:bg-emerald-600 dark:text-white',
+    bar: 'bg-emerald-600 dark:bg-emerald-400',
+    text: 'text-emerald-800 dark:text-emerald-300',
+  },
+]
+
+function monitorAvailabilityBand(value: number | null | undefined): Omit<MonitorAvailabilityBand, 'below'> {
+  if (value == null || !Number.isFinite(value)) return MONITOR_AVAILABILITY_UNKNOWN
+  return MONITOR_AVAILABILITY_BANDS.find(band => value < band.below) ?? MONITOR_AVAILABILITY_UNKNOWN
+}
+
+/** Pill background for an availability percentage (0–100). */
+export function availabilityBadgeClass(value: number | null | undefined): string {
+  return monitorAvailabilityBand(value).badge
+}
+
+/** Fill colour for an availability percentage (0–100). */
+export function availabilityBarClass(value: number | null | undefined): string {
+  return monitorAvailabilityBand(value).bar
+}
+
+/** Foreground colour for an availability percentage (0–100). */
+export function availabilityTextClass(value: number | null | undefined): string {
+  return monitorAvailabilityBand(value).text
+}
+
 export function formatMonitorMs(value: number | null | undefined): string {
   if (value == null) return '-'
   return value >= 1000 ? `${(value / 1000).toFixed(1)}s` : `${Math.round(value)}ms`

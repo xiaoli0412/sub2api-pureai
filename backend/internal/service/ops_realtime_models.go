@@ -50,22 +50,30 @@ type UserConcurrencyInfo struct {
 
 // PlatformAvailability aggregates account availability by platform.
 type PlatformAvailability struct {
-	Platform       string `json:"platform"`
-	TotalAccounts  int64  `json:"total_accounts"`
-	AvailableCount int64  `json:"available_count"`
-	RateLimitCount int64  `json:"rate_limit_count"`
-	ErrorCount     int64  `json:"error_count"`
+	Platform                string `json:"platform"`
+	TotalAccounts           int64  `json:"total_accounts"`
+	AvailableCount          int64  `json:"available_count"`
+	RateLimitCount          int64  `json:"rate_limit_count"`
+	ErrorCount              int64  `json:"error_count"`
+	BalanceLowCount         int64  `json:"balance_low_count"`
+	BalanceStaleCount       int64  `json:"balance_stale_count"`
+	BalanceUnknownCount     int64  `json:"balance_unknown_count"`
+	BalanceProbeFailedCount int64  `json:"balance_probe_failed_count"`
 }
 
 // GroupAvailability aggregates account availability by group.
 type GroupAvailability struct {
-	GroupID        int64  `json:"group_id"`
-	GroupName      string `json:"group_name"`
-	Platform       string `json:"platform"`
-	TotalAccounts  int64  `json:"total_accounts"`
-	AvailableCount int64  `json:"available_count"`
-	RateLimitCount int64  `json:"rate_limit_count"`
-	ErrorCount     int64  `json:"error_count"`
+	GroupID                 int64  `json:"group_id"`
+	GroupName               string `json:"group_name"`
+	Platform                string `json:"platform"`
+	TotalAccounts           int64  `json:"total_accounts"`
+	AvailableCount          int64  `json:"available_count"`
+	RateLimitCount          int64  `json:"rate_limit_count"`
+	ErrorCount              int64  `json:"error_count"`
+	BalanceLowCount         int64  `json:"balance_low_count"`
+	BalanceStaleCount       int64  `json:"balance_stale_count"`
+	BalanceUnknownCount     int64  `json:"balance_unknown_count"`
+	BalanceProbeFailedCount int64  `json:"balance_probe_failed_count"`
 }
 
 // AccountAvailability represents current availability for a single account.
@@ -89,4 +97,14 @@ type AccountAvailability struct {
 	OverloadRemainingSec   *int64     `json:"overload_remaining_sec"`
 	ErrorMessage           string     `json:"error_message"`
 	TempUnschedulableUntil *time.Time `json:"temp_unschedulable_until,omitempty"`
+	BalanceStatus          string     `json:"balance_status,omitempty"`
+	Balance                *float64   `json:"balance,omitempty"`
+	BalanceCurrency        string     `json:"balance_currency,omitempty"`
+	BalanceLow             bool       `json:"balance_low"`
+	BalanceStale           bool       `json:"balance_stale"`
+	BalanceProbeFailed     bool       `json:"balance_probe_failed"`
+	BalanceUnknown         bool       `json:"balance_unknown"`
+	BalanceUpdatedAt       *time.Time `json:"balance_updated_at,omitempty"`
+	BalanceUnschedulable   bool       `json:"balance_unschedulable"`
+	BlockSource            string     `json:"block_source,omitempty"`
 }

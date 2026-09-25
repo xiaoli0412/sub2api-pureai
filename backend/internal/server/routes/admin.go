@@ -367,7 +367,10 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.GET("/opencode-go-usage/settings", h.Admin.Account.GetOpenCodeGoUsageSettings)
 		accounts.PUT("/opencode-go-usage/settings", h.Admin.Account.UpdateOpenCodeGoUsageSettings)
 		accounts.GET("/:id", h.Admin.Account.GetByID)
+		accounts.GET("/:id/balance", h.Admin.Account.GetBalance)
+		accounts.POST("/:id/balance/probe", h.Admin.Account.ProbeBalance)
 		accounts.POST("", h.Admin.Account.Create)
+
 		accounts.POST("/:id/duplicate", h.Admin.Account.Duplicate)
 		accounts.POST("/check-mixed-channel", h.Admin.Account.CheckMixedChannel)
 		accounts.POST("/import/codex-session", h.Admin.Account.ImportCodexSession)
@@ -873,7 +876,9 @@ func channelMonitorAdminFeatureGuard(settingService *service.SettingService) gin
 	}
 }
 
-// channelMonitorModeV2Guard requires feature enabled and channel_monitor_mode=v2.
+// channelMonitorModeV2Guard requires the feature enabled and a passive mode
+// (channel_monitor_mode=v2 or v3). V3 reads the same passive pipeline as V2, so
+// it must reach these endpoints; the name is kept for upstream merge affinity.
 func channelMonitorModeV2Guard(settingService *service.SettingService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if settingService == nil {

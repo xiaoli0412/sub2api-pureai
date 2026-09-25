@@ -178,12 +178,13 @@ export function isChannelMonitorRouteEnabled(): boolean {
   return isFeatureFlagEnabled(FeatureFlags.channelMonitor)
 }
 
-export type ChannelMonitorMode = 'v1' | 'v2'
+export type ChannelMonitorMode = 'v1' | 'v2' | 'v3'
 
-/** Exclusive channel-monitor implementation. Invalid/missing → v1 (opt-in to v2). */
+/** Exclusive channel-monitor implementation. Invalid/missing → v1 (opt-in to v2/v3). */
 export function getChannelMonitorMode(): ChannelMonitorMode {
   const appStore = useAppStore()
   const mode = appStore.cachedPublicSettings?.channel_monitor_mode
+  if (mode === 'v3') return 'v3'
   return mode === 'v2' ? 'v2' : 'v1'
 }
 
@@ -193,6 +194,21 @@ export function isChannelMonitorV1Mode(): boolean {
 
 export function isChannelMonitorV2Mode(): boolean {
   return isChannelMonitorRouteEnabled() && getChannelMonitorMode() === 'v2'
+}
+
+/**
+ * V3 is the group-scoped passive console. It reads the same passive
+ * aggregation pipeline as V2, so `isChannelMonitorPassiveMode()` (not
+ * `isChannelMonitorV2Mode()`) is the right predicate for anything that must
+ * keep working under either passive mode.
+ */
+export function isChannelMonitorV3Mode(): boolean {
+  return isChannelMonitorRouteEnabled() && getChannelMonitorMode() === 'v3'
+}
+
+/** True for either passive mode (V2 or V3): both share the v2 data pipeline. */
+export function isChannelMonitorPassiveMode(): boolean {
+  return isChannelMonitorV2Mode() || isChannelMonitorV3Mode()
 }
 
 export function getChannelMonitorRefreshIntervalSeconds(): number {

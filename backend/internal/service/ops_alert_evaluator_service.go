@@ -521,8 +521,52 @@ func (s *OpsAlertEvaluatorService) computeRuleMetric(
 		return float64(countAccountsByCondition(availability.Accounts, func(acc *AccountAvailability) bool {
 			return acc.TempUnschedulableUntil != nil && now.Before(*acc.TempUnschedulableUntil)
 		})), true
+	case "account_balance_low_count", "account_balance_probe_failed_count", "account_balance_stale_count", "account_balance_unknown_count", "account_balance_low_ratio":
+		if s == nil || s.opsService == nil {
+			return 0, false
+		}
+		availability, err := s.opsService.GetAccountAvailability(ctx, platform, groupID)
+		if err != nil || availability == nil {
+			return 0, false
+		}
+		count := func(predicate func(*AccountAvailability) bool) int64 {
+			return countAccountsByCondition(availability.Accounts, predicate)
+		}
+		switch strings.TrimSpace(rule.MetricType) {
+		case "account_balance_low_count":
+			return float64(count(func(acc *AccountAvailability) bool { return acc.BalanceLow })), true
+		case "account_balance_probe_failed_count":
+			return float64(count(func(acc *AccountAvailability) bool { return acc.BalanceProbeFailed })), true
+		case "account_balance_stale_count":
+			return float64(count(func(acc *AccountAvailability) bool { return acc.BalanceStale })), true
+		case "account_balance_unknown_count":
+			return float64(count(func(acc *AccountAvailability) bool { return acc.BalanceUnknown })), true
+		default:
+			total := int64(len(availability.Accounts))
+			if total == 0 {
+				return 0, true
+			}
+			return float64(count(func(acc *AccountAvailability) bool { return acc.BalanceLow })) / float64(total) * 100, true
+		}
+	case "group_balance_low_count", "group_balance_low_ratio":
+		if groupID == nil || *groupID <= 0 || s == nil || s.opsService == nil {
+			return 0, false
+		}
+		availability, err := s.opsService.GetAccountAvailability(ctx, platform, groupID)
+		if err != nil || availability == nil || availability.Group == nil {
+			return 0, false
+		}
+		if rule.MetricType == "group_balance_low_count" {
+			return float64(availability.Group.BalanceLowCount), true
+		}
+		if availability.Group.TotalAccounts == 0 {
+			return 0, true
+		}
+		return float64(availability.Group.BalanceLowCount) / float64(availability.Group.TotalAccounts) * 100, true
+
 	case "group_rate_limit_ratio":
 		if groupID == nil || *groupID <= 0 {
+
 			return 0, false
 		}
 		if s == nil || s.opsService == nil {

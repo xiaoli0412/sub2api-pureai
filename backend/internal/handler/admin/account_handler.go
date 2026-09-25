@@ -64,9 +64,15 @@ type AccountHandler struct {
 	tokenCacheInvalidator   service.TokenCacheInvalidator
 	grokImportProber        grokImportProber
 	upstreamBillingProbe    *service.UpstreamBillingProbeService
+	balanceService          *service.CNProviderBalanceService
 	ollamaCloudUsage        *service.OllamaCloudUsageService
 	cfg                     *config.Config
 	opencodeGoUsage         *service.OpenCodeGoUsageService
+}
+
+// SetBalanceService attaches the optional unified account balance service.
+func (h *AccountHandler) SetBalanceService(balanceService *service.CNProviderBalanceService) {
+	h.balanceService = balanceService
 }
 
 // SetUpstreamBillingProbeService attaches the optional remote billing probe service.
@@ -965,7 +971,44 @@ func (h *AccountHandler) GetByID(c *gin.Context) {
 	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
 }
 
-// CheckMixedChannel handles checking mixed channel risk for account-group binding.
+// GetBalance returns the stored unified balance snapshot without probing upstream.
+func (h *AccountHandler) GetBalance(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	if h == nil || h.balanceService == nil {
+		response.BadRequest(c, "account balance service is not enabled")
+		return
+	}
+	result, err := h.balanceService.GetAccountBalance(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
+}
+
+// ProbeBalance performs one provider balance probe and updates the stored snapshot on success.
+func (h *AccountHandler) ProbeBalance(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	if h == nil || h.balanceService == nil {
+		response.BadRequest(c, "account balance service is not enabled")
+		return
+	}
+	result, err := h.balanceService.QueryAccountBalance(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
+}
+
 // POST /api/v1/admin/accounts/check-mixed-channel
 func (h *AccountHandler) CheckMixedChannel(c *gin.Context) {
 	var req CheckMixedChannelRequest

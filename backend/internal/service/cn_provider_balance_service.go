@@ -27,6 +27,7 @@ import (
 const (
 	cnBalanceUpstreamTimeout = 15 * time.Second
 	cnBalanceMaxBodyBytes    = 256 * 1024
+	cnBalanceFreshTTL        = 15 * time.Minute
 
 	// Extra 余额快照键后缀（加 provider 前缀）。
 	cnBalanceExtraSuffixBalance   = "balance"
@@ -46,19 +47,220 @@ type CNProviderBalanceEntry struct {
 type CNProviderBalanceResult struct {
 	Provider string `json:"provider"`
 	Success  bool   `json:"success"`
+	// Status distinguishes a valid zero/low balance from a failed probe.
+	// It is intentionally explicit because Success=false must never be treated as zero.
+	Status string `json:"status"`
 	// Balance/Currency 为主币种（balance_infos 首条，兼容单币种消费方）；
 	// 完整明细见 Balances（deepseek 双币种账号含 CNY + USD 两条）。
-	Balance    float64                  `json:"balance"`
-	Currency   string                   `json:"currency,omitempty"`
-	Balances   []CNProviderBalanceEntry `json:"balances,omitempty"`
-	Available  bool                     `json:"available"` // 健康标记（deepseek is_available；kimi 无此概念恒 true）
-	StatusCode int                      `json:"status_code,omitempty"`
-	FetchedAt  int64                    `json:"fetched_at"`
-	Persisted  bool                     `json:"persisted"`
-	Error      string                   `json:"error,omitempty"`
+	Balance        float64                  `json:"balance"`
+	Currency       string                   `json:"currency,omitempty"`
+	Balances       []CNProviderBalanceEntry `json:"balances,omitempty"`
+	Available      bool                     `json:"available"` // 健康标记（deepseek is_available；kimi 无此概念恒 true）
+	StatusCode     int                      `json:"status_code,omitempty"`
+	FetchedAt      int64                    `json:"fetched_at"`
+	FreshUntil     int64                    `json:"fresh_until,omitempty"`
+	Stale          bool                     `json:"stale"`
+	RateMultiplier float64                  `json:"rate_multiplier,omitempty"`
+	Persisted      bool                     `json:"persisted"`
+	Error          string                   `json:"error,omitempty"`
 }
 
-// CNProviderBalanceService 探测 Kimi / DeepSeek payg 账号的账户余额。
+// AccountBalanceResult 是账号管理使用的统一余额结果。
+// CNProviderBalanceResult 保持原有 CN 专用接口契约；该类型通过别名扩展字段，
+// 让旧客户端继续兼容，同时为非 CN 账号返回 unsupported + 本地倍率。
+type AccountBalanceResult = CNProviderBalanceResult
+
+// GetAccountBalance 返回最近一次成功的余额快照，不访问上游。
+func (s *CNProviderBalanceService) GetAccountBalance(ctx context.Context, accountID int64) (*AccountBalanceResult, error) {
+	if s == nil || s.accountRepo == nil {
+		return nil, infraerrors.New(http.StatusInternalServerError, "BALANCE_NOT_CONFIGURED", "account balance service is not configured")
+	}
+	account, err := s.accountRepo.GetByID(ctx, accountID)
+	if err != nil || account == nil {
+		return nil, infraerrors.New(http.StatusNotFound, "BALANCE_ACCOUNT_NOT_FOUND", "account not found")
+	}
+	return accountBalanceSnapshot(account), nil
+}
+
+// QueryAccountBalance probes providers with a known balance adapter and returns
+// an explicit unsupported result for providers without one.
+func (s *CNProviderBalanceService) QueryAccountBalance(ctx context.Context, accountID int64) (*AccountBalanceResult, error) {
+	if s == nil || s.accountRepo == nil {
+		return nil, infraerrors.New(http.StatusInternalServerError, "BALANCE_NOT_CONFIGURED", "account balance service is not configured")
+	}
+	account, err := s.accountRepo.GetByID(ctx, accountID)
+	if err != nil || account == nil {
+		return nil, infraerrors.New(http.StatusNotFound, "BALANCE_ACCOUNT_NOT_FOUND", "account not found")
+	}
+	if account.Platform == PlatformKimi || account.Platform == PlatformDeepseek {
+		if err := validatePayGAccount(account); err != nil {
+			return &CNProviderBalanceResult{Provider: account.Platform, Status: "unsupported", RateMultiplier: account.BillingRateMultiplier(), Error: "This account uses a quota plan; balance probing is not supported"}, nil
+		}
+		return s.QueryBalanceForAccount(ctx, account)
+	}
+	return unsupportedAccountBalance(account), nil
+}
+
+func accountBalanceSnapshot(account *Account) *AccountBalanceResult {
+	if account == nil {
+		return unsupportedAccountBalance(account)
+	}
+	if raw, ok := account.Extra["upstream_balance"].(map[string]any); ok {
+		if result := accountBalanceFromMap(account, raw); result != nil {
+			return result
+		}
+	}
+	if legacy := legacyAccountBalanceSnapshot(account); legacy != nil {
+		return legacy
+	}
+	if account.Platform == PlatformKimi || account.Platform == PlatformDeepseek {
+		return &AccountBalanceResult{
+			Provider:       account.Platform,
+			Status:         "unknown",
+			RateMultiplier: account.BillingRateMultiplier(),
+			Available:      true,
+			Error:          "No successful balance snapshot is available",
+		}
+	}
+	return unsupportedAccountBalance(account)
+}
+
+func legacyAccountBalanceSnapshot(account *Account) *AccountBalanceResult {
+	if account == nil || account.Extra == nil {
+		return nil
+	}
+	provider := account.Platform
+	rawBalance, exists := account.Extra[cnExtraKey(provider, cnBalanceExtraSuffixBalance)]
+	if !exists {
+		return nil
+	}
+	balance, ok := cnParseF64(rawBalance)
+	if !ok {
+		return nil
+	}
+	result := &AccountBalanceResult{
+		Provider:       provider,
+		Status:         "success",
+		Success:        true,
+		Balance:        balance,
+		Available:      true,
+		RateMultiplier: account.BillingRateMultiplier(),
+	}
+	result.Currency, _ = account.Extra[cnExtraKey(provider, cnBalanceExtraSuffixCurrency)].(string)
+	if available, ok := account.Extra[cnExtraKey(provider, cnBalanceExtraSuffixAvailable)].(bool); ok {
+		result.Available = available
+	}
+	result.FetchedAt = balanceExtraUnix(account.Extra[cnExtraKey(provider, cnBalanceExtraSuffixUpdated)])
+	if result.FetchedAt > 0 {
+		result.FreshUntil = result.FetchedAt + int64(cnBalanceFreshTTL/time.Second)
+	}
+	result.Balances = balanceEntriesFromRaw(account.Extra[cnExtraKey(provider, cnBalanceExtraSuffixBalances)])
+	if len(result.Balances) == 0 {
+		result.Balances = []CNProviderBalanceEntry{{Currency: result.Currency, Balance: result.Balance}}
+	}
+	if low, ok := account.Extra[cnExtraKey(provider, cnBalanceExtraSuffixLow)].(bool); ok && low {
+		result.Status = "low"
+	} else if !result.Available {
+		result.Status = "low"
+	} else if result.Balance == 0 && len(result.Balances) == 1 {
+		result.Status = "zero"
+	}
+	if result.FreshUntil > 0 && time.Now().UTC().Unix() > result.FreshUntil {
+		result.Stale = true
+		result.Status = "stale"
+	}
+	return result
+}
+
+func balanceEntriesFromRaw(raw any) []CNProviderBalanceEntry {
+	var entries []CNProviderBalanceEntry
+	switch values := raw.(type) {
+	case []any:
+		for _, value := range values {
+			if entry, ok := balanceEntryFromRaw(value); ok {
+				entries = append(entries, entry)
+			}
+		}
+	case []map[string]any:
+		for _, value := range values {
+			if entry, ok := balanceEntryFromRaw(value); ok {
+				entries = append(entries, entry)
+			}
+		}
+	}
+	return entries
+}
+
+func balanceEntryFromRaw(raw any) (CNProviderBalanceEntry, bool) {
+	value, ok := raw.(map[string]any)
+	if !ok {
+		return CNProviderBalanceEntry{}, false
+	}
+	balance, ok := cnParseF64(value["balance"])
+	if !ok {
+		return CNProviderBalanceEntry{}, false
+	}
+	currency, _ := value["currency"].(string)
+	return CNProviderBalanceEntry{Currency: currency, Balance: balance}, true
+}
+
+func unsupportedAccountBalance(account *Account) *AccountBalanceResult {
+	result := &AccountBalanceResult{Status: "unsupported", Error: "This provider does not expose a supported balance endpoint"}
+	if account != nil {
+		result.Provider = account.Platform
+		result.RateMultiplier = account.BillingRateMultiplier()
+	}
+	return result
+}
+
+func accountBalanceFromMap(account *Account, raw map[string]any) *AccountBalanceResult {
+	status, _ := raw["status"].(string)
+	balance, ok := cnParseF64(raw["balance"])
+	if status == "" || !ok {
+		return nil
+	}
+	result := &AccountBalanceResult{
+		Provider:       account.Platform,
+		Status:         status,
+		Success:        status == "success" || status == "zero" || status == "low",
+		Balance:        balance,
+		Available:      true,
+		FetchedAt:      balanceExtraUnix(raw["fetched_at"]),
+		FreshUntil:     balanceExtraUnix(raw["fresh_until"]),
+		RateMultiplier: account.BillingRateMultiplier(),
+	}
+	result.Currency, _ = raw["currency"].(string)
+	if available, ok := raw["available"].(bool); ok {
+		result.Available = available
+	}
+	if stale, ok := raw["stale"].(bool); ok {
+		result.Stale = stale
+	}
+	if result.FreshUntil > 0 && time.Now().UTC().Unix() > result.FreshUntil {
+		result.Stale = true
+		if result.Success {
+			result.Status = "stale"
+		}
+	}
+	return result
+}
+
+func balanceExtraUnix(raw any) int64 {
+	switch value := raw.(type) {
+	case int64:
+		return value
+	case int:
+		return int64(value)
+	case float64:
+		return int64(value)
+	case string:
+		if parsed, err := time.Parse(time.RFC3339, value); err == nil {
+			return parsed.Unix()
+		}
+	}
+	return 0
+}
+
 type CNProviderBalanceService struct {
 	accountRepo  AccountRepository
 	proxyRepo    ProxyRepository
@@ -162,16 +364,30 @@ func (s *CNProviderBalanceService) queryBalanceForAccount(ctx context.Context, a
 	now := time.Now().UTC()
 	result := &CNProviderBalanceResult{
 		Provider:   provider,
+		Status:     "unknown",
 		FetchedAt:  now.Unix(),
+		FreshUntil: now.Add(cnBalanceFreshTTL).Unix(),
 		StatusCode: resp.StatusCode,
 		Available:  true,
 	}
 
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		result.Status = "auth_failed"
 		result.Error = fmt.Sprintf("Authentication failed (HTTP %d)", resp.StatusCode)
 		return result, nil
 	}
+	if resp.StatusCode == http.StatusNotFound {
+		result.Status = "endpoint_not_found"
+		result.Error = "Balance endpoint was not found"
+		return result, nil
+	}
+	if resp.StatusCode == http.StatusTooManyRequests {
+		result.Status = "rate_limited"
+		result.Error = "Balance endpoint rate limited"
+		return result, nil
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		result.Status = "unknown"
 		result.Error = fmt.Sprintf("API error (HTTP %d): %s", resp.StatusCode, truncate(strings.TrimSpace(string(bodyBytes)), 240))
 		return result, nil
 	}
@@ -181,8 +397,20 @@ func (s *CNProviderBalanceService) queryBalanceForAccount(ctx context.Context, a
 	switch provider {
 	case PlatformKimi:
 		// Moonshot：code==0 成功；data.available_balance（number），单币种 CNY。
-		balance, _ := cnParseF64(gjson.GetBytes(bodyBytes, "data.available_balance").Value())
+		balanceValue := gjson.GetBytes(bodyBytes, "data.available_balance")
+		if !balanceValue.Exists() || balanceValue.Type == gjson.Null {
+			result.Status = "parse_error"
+			result.Error = "Invalid balance response: missing data.available_balance"
+			return result, nil
+		}
+		balance, ok := cnParseF64(balanceValue.Value())
+		if !ok {
+			result.Status = "parse_error"
+			result.Error = "Invalid balance response: data.available_balance is not numeric"
+			return result, nil
+		}
 		entries = append(entries, CNProviderBalanceEntry{Currency: "CNY", Balance: balance})
+
 	case PlatformDeepseek:
 		// is_available 缺省视为 true（健康）；显式存在时取其值。
 		if v := gjson.GetBytes(bodyBytes, "is_available"); v.Exists() {
@@ -218,6 +446,16 @@ func (s *CNProviderBalanceService) queryBalanceForAccount(ctx context.Context, a
 	result.Currency = entries[0].Currency
 	result.Available = available
 	result.Success = true
+	result.RateMultiplier = account.BillingRateMultiplier()
+	if !available {
+		result.Status = "low"
+	} else if result.Balance == 0 && len(entries) == 1 {
+		result.Status = "zero"
+	} else if threshold := balanceThresholdForStatus(s.cfg); threshold >= 0 && allCNBalancesBelowThreshold(result, threshold) {
+		result.Status = "low"
+	} else {
+		result.Status = "success"
+	}
 
 	balanceUpdates := make([]any, 0, len(entries))
 	for _, entry := range entries {
@@ -232,6 +470,17 @@ func (s *CNProviderBalanceService) queryBalanceForAccount(ctx context.Context, a
 		cnExtraKey(provider, cnBalanceExtraSuffixAvailable): available,
 		cnExtraKey(provider, cnBalanceExtraSuffixUpdated):   now.Format(time.RFC3339),
 		cnExtraKey(provider, cnBalanceExtraSuffixBalances):  balanceUpdates,
+		"upstream_balance": map[string]any{
+			"provider":    result.Provider,
+			"status":      result.Status,
+			"balance":     result.Balance,
+			"currency":    result.Currency,
+			"balances":    balanceUpdates,
+			"available":   result.Available,
+			"fetched_at":  result.FetchedAt,
+			"fresh_until": result.FreshUntil,
+			"stale":       false,
+		},
 		// 余额探测成功即清除响应式 402/429 写下的 balance_low 标记。
 		cnExtraKey(provider, cnBalanceExtraSuffixLow): false,
 	}
@@ -243,7 +492,13 @@ func (s *CNProviderBalanceService) queryBalanceForAccount(ctx context.Context, a
 	return result, nil
 }
 
-// loadPayGAccount 加载 payg 模式的国产供应商账号（余额仅对 payg 有意义；coding 走额度）。
+func balanceThresholdForStatus(cfg *config.Config) float64 {
+	if cfg == nil || cfg.Gateway.CNProviders.BalanceThreshold <= 0 {
+		return -1
+	}
+	return cfg.Gateway.CNProviders.BalanceThreshold
+}
+
 func (s *CNProviderBalanceService) loadPayGAccount(ctx context.Context, accountID int64) (*Account, error) {
 	account, err := s.accountRepo.GetByID(ctx, accountID)
 	if err != nil {

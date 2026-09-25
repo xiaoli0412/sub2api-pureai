@@ -1491,6 +1491,8 @@ func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, grou
 			return accounts, err
 		}
 		accounts = s.filterOpenAIAccountsBySchedulingThreshold(ctx, accounts)
+		accounts = filterAccountsByBalanceAvailability(accounts, time.Now().UTC())
+
 		if platform == PlatformGrok {
 			accounts = s.filterGrokFreeQuotaAccountsForOpenAI(ctx, accounts)
 		}
@@ -1509,7 +1511,9 @@ func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, grou
 		return nil, fmt.Errorf("query accounts failed: %w", err)
 	}
 	accounts = s.filterOpenAIAccountsBySchedulingThreshold(ctx, accounts)
+	accounts = filterAccountsByBalanceAvailability(accounts, time.Now().UTC())
 	if platform == PlatformGrok {
+
 		accounts = s.filterGrokFreeQuotaAccountsForOpenAI(ctx, accounts)
 	}
 	return accounts, nil

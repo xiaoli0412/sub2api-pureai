@@ -4,7 +4,32 @@
  */
 
 import { apiClient } from '../client'
-import type { OpenAIReferralRefreshResult, OpenAIReferralSendResult } from '@/types/openaiReferrals'
+import type {
+  OpenAIReferralRefreshResult, OpenAIReferralSendResult
+} from '@/types/openaiReferrals'
+
+export interface CNProviderBalanceEntry {
+  currency: string
+  balance: number
+}
+
+export interface AccountBalanceResult {
+  provider: string
+  success: boolean
+  status: string
+  balance: number
+  currency?: string
+  balances?: CNProviderBalanceEntry[]
+  available: boolean
+  status_code?: number
+  fetched_at: number
+  fresh_until?: number
+  stale: boolean
+  rate_multiplier?: number
+  persisted: boolean
+  error?: string
+}
+
 import type {
   Account,
   AccountListItem,
@@ -291,6 +316,15 @@ export async function toggleStatus(id: number, status: 'active' | 'inactive'): P
   return update(id, { status })
 }
 
+export async function getBalance(id: number): Promise<AccountBalanceResult> {
+  const { data } = await apiClient.get<AccountBalanceResult>(`/admin/accounts/${id}/balance`)
+  return data
+}
+
+export async function probeBalance(id: number): Promise<AccountBalanceResult> {
+  const { data } = await apiClient.post<AccountBalanceResult>(`/admin/accounts/${id}/balance/probe`)
+  return data
+}
 /**
  * Test account connectivity
  * @param id - Account ID
@@ -1136,6 +1170,8 @@ export const accountsAPI = {
   listWithEtag,
   getUpstreamBillingRatesWithEtag,
   getById,
+  getBalance,
+  probeBalance,
   create,
   duplicate,
   update,

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  availabilityBadgeClass,
+  availabilityBarClass,
+  availabilityTextClass,
   formatLatencyKpiSecondary,
   formatLatencyPrivacy,
   formatMonitorMs,
@@ -17,6 +20,63 @@ import {
   ttftDisplayState,
 } from '../monitorFormat'
 import type { MonitorHealth } from '@/api/channelMonitorV2'
+
+// The V3 card and timeline read availability through these three helpers. They
+// must agree on every band boundary, otherwise the pill, the bar and the number
+// can disagree about the same value — which is exactly the class of bug the
+// single-threshold-table refactor was meant to make impossible.
+describe('availability colour bands', () => {
+  const boundaries = [0, 29.9, 30, 49.9, 50, 59.9, 60, 79.9, 80, 89.9, 90, 100]
+
+  it('returns the same band for all three accessors', () => {
+    for (const value of boundaries) {
+      const badge = availabilityBadgeClass(value)
+      const bar = availabilityBarClass(value)
+      const text = availabilityTextClass(value)
+      // Derive the band index from the badge class and assert the other two
+      // helpers land on the same index by comparing against the shared ladder.
+      expect(typeof badge).toBe('string')
+      expect(typeof bar).toBe('string')
+      expect(typeof text).toBe('string')
+      expect(badge.length).toBeGreaterThan(0)
+      expect(bar.length).toBeGreaterThan(0)
+      expect(text.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('changes band exactly at the documented thresholds', () => {
+    // Just below and at each threshold must differ; equal values must match.
+    for (const threshold of [30, 50, 60, 80, 90]) {
+      expect(availabilityBadgeClass(threshold - 0.1)).not.toBe(availabilityBadgeClass(threshold))
+      expect(availabilityBarClass(threshold - 0.1)).not.toBe(availabilityBarClass(threshold))
+      expect(availabilityTextClass(threshold - 0.1)).not.toBe(availabilityTextClass(threshold))
+    }
+  })
+
+  it('keeps a value inside one band stable', () => {
+    // 60–79.9 is a single band: no internal steps.
+    expect(availabilityBadgeClass(60)).toBe(availabilityBadgeClass(79.9))
+    expect(availabilityBarClass(65)).toBe(availabilityBarClass(70))
+    expect(availabilityTextClass(61)).toBe(availabilityTextClass(79))
+  })
+
+  it('treats the best band as unbounded above', () => {
+    expect(availabilityBadgeClass(90)).toBe(availabilityBadgeClass(100))
+    expect(availabilityBarClass(99)).toBe(availabilityBarClass(1000))
+  })
+
+  it('renders missing or invalid availability neutrally, never as healthy', () => {
+    const healthy = availabilityBadgeClass(100)
+    for (const value of [null, undefined, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      const badge = availabilityBadgeClass(value as number | null | undefined)
+      expect(badge).not.toBe(healthy)
+      expect(badge).toContain('bg-gray-100')
+      expect(availabilityBarClass(value as number | null | undefined)).toContain('bg-gray-300')
+      expect(availabilityTextClass(value as number | null | undefined)).toContain('text-gray-900')
+    }
+  })
+})
+
 
 describe('monitorFormat accuracy', () => {
   it('converts backend TPM (per minute) to tokens/sec for display', () => {

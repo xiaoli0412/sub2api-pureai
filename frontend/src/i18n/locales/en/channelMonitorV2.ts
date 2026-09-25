@@ -90,6 +90,7 @@ export default {
       modeClosed: 'Channel monitor disabled',
       modeV1: 'V1 active probes',
       modeV2: 'V2 passive monitoring',
+      modeV3: 'V3 group console',
       enableTitle: 'Enable V2 aggregation',
       enableHint:
         'Applies when system mode is V2. Turning this off only stops this config’s aggregation; the system mode switch remains under Feature switches.',

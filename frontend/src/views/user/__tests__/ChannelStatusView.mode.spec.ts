@@ -3,9 +3,11 @@ import { defineComponent, h } from 'vue'
 import { mount } from '@vue/test-utils'
 
 const isV1 = vi.fn(() => false)
+const isV3 = vi.fn(() => false)
 
 vi.mock('@/utils/featureFlags', () => ({
   isChannelMonitorV1Mode: () => isV1(),
+  isChannelMonitorV3Mode: () => isV3(),
 }))
 
 vi.mock('../ChannelStatusV1View.vue', () => ({
@@ -14,12 +16,18 @@ vi.mock('../ChannelStatusV1View.vue', () => ({
 vi.mock('../ChannelStatusV2View.vue', () => ({
   default: defineComponent({ name: 'ChannelStatusV2View', setup: () => () => h('div', { 'data-testid': 'v2' }) }),
 }))
+vi.mock('../ChannelStatusV3View.vue', () => ({
+  default: defineComponent({ name: 'ChannelStatusV3View', setup: () => () => h('div', { 'data-testid': 'v3' }) }),
+}))
 
 import ChannelStatusView from '../ChannelStatusView.vue'
 
 describe('ChannelStatusView mode switch', () => {
   beforeEach(() => {
     isV1.mockReset()
+    isV3.mockReset()
+    isV1.mockReturnValue(false)
+    isV3.mockReturnValue(false)
   })
 
   it('renders V2 when not in v1 mode', () => {
@@ -34,5 +42,23 @@ describe('ChannelStatusView mode switch', () => {
     const wrapper = mount(ChannelStatusView)
     expect(wrapper.find('[data-testid="v1"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="v2"]').exists()).toBe(false)
+  })
+
+  it('renders V3 when in v3 mode', () => {
+    isV3.mockReturnValue(true)
+    const wrapper = mount(ChannelStatusView)
+    expect(wrapper.find('[data-testid="v3"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="v1"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="v2"]').exists()).toBe(false)
+  })
+
+  // V1 stays the highest-priority branch so an inconsistent flag combination can
+  // never silently promote a deployment from active probes to a passive console.
+  it('prefers V1 when both v1 and v3 report true', () => {
+    isV1.mockReturnValue(true)
+    isV3.mockReturnValue(true)
+    const wrapper = mount(ChannelStatusView)
+    expect(wrapper.find('[data-testid="v1"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="v3"]').exists()).toBe(false)
   })
 })

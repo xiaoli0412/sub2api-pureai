@@ -58,6 +58,11 @@ func (s *OpsService) GetAccountAvailabilityStats(ctx context.Context, platformFi
 		isRateLimited := acc.RateLimitResetAt != nil && now.Before(*acc.RateLimitResetAt)
 		isOverloaded := acc.OverloadUntil != nil && now.Before(*acc.OverloadUntil)
 		hasError := acc.Status == StatusError
+		balance := accountBalanceSnapshot(&acc)
+		balanceLow := balance != nil && balance.Success && (balance.Status == "low" || balance.Status == "zero") && !balance.Stale
+		balanceStale := balance != nil && balance.Stale
+		balanceProbeFailed := balance != nil && !balance.Success && balance.Status != "unsupported" && balance.Status != "unknown" && balance.Status != ""
+		balanceUnknown := balance != nil && (balance.Status == "unknown" || balance.Status == "unsupported" || balance.Stale || balanceProbeFailed)
 
 		// Normalize exclusive status flags so the UI doesn't show conflicting badges.
 		if hasError {
@@ -84,6 +89,19 @@ func (s *OpsService) GetAccountAvailabilityStats(ctx context.Context, platformFi
 			if hasError {
 				p.ErrorCount++
 			}
+			if balanceLow {
+				p.BalanceLowCount++
+			}
+			if balanceStale {
+				p.BalanceStaleCount++
+			}
+			if balanceUnknown {
+				p.BalanceUnknownCount++
+			}
+			if balanceProbeFailed {
+				p.BalanceProbeFailedCount++
+			}
+
 		}
 
 		for _, grp := range acc.Groups {
@@ -108,6 +126,19 @@ func (s *OpsService) GetAccountAvailabilityStats(ctx context.Context, platformFi
 			if hasError {
 				g.ErrorCount++
 			}
+			if balanceLow {
+				g.BalanceLowCount++
+			}
+			if balanceStale {
+				g.BalanceStaleCount++
+			}
+			if balanceUnknown {
+				g.BalanceUnknownCount++
+			}
+			if balanceProbeFailed {
+				g.BalanceProbeFailedCount++
+			}
+
 		}
 
 		displayGroupID := int64(0)
@@ -131,6 +162,25 @@ func (s *OpsService) GetAccountAvailabilityStats(ctx context.Context, platformFi
 			HasError:      hasError,
 
 			ErrorMessage: acc.ErrorMessage,
+			BalanceStatus: func() string {
+				if balance == nil {
+					return ""
+				}
+				return balance.Status
+			}(),
+			BalanceLow:           balanceLow,
+			BalanceStale:         balanceStale,
+			BalanceProbeFailed:   balanceProbeFailed,
+			BalanceUnknown:       balanceUnknown,
+			BalanceUnschedulable: balanceLow && isTempUnsched,
+		}
+		if balance != nil {
+			item.Balance = &balance.Balance
+			item.BalanceCurrency = balance.Currency
+			if balance.FetchedAt > 0 {
+				fetched := time.Unix(balance.FetchedAt, 0).UTC()
+				item.BalanceUpdatedAt = &fetched
+			}
 		}
 
 		if isRateLimited && acc.RateLimitResetAt != nil {
