@@ -369,6 +369,7 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.GET("/:id", h.Admin.Account.GetByID)
 		accounts.GET("/:id/balance", h.Admin.Account.GetBalance)
 		accounts.POST("/:id/balance/probe", h.Admin.Account.ProbeBalance)
+		accounts.GET("/:id/claude/reset-credits", h.Admin.Account.ClaudeResetCredits)
 		accounts.POST("", h.Admin.Account.Create)
 
 		accounts.POST("/:id/duplicate", h.Admin.Account.Duplicate)
