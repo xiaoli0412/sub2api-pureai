@@ -1,7 +1,7 @@
 <template>
   <AppLayout>
     <div class="space-y-6">
-      <UsageStatsCards :stats="usageStats" />
+      <UsageStatsCards :stats="usageStats" :display-config="usageDisplay.config.value" />
       <!-- Charts Section -->
       <div class="space-y-4">
         <div class="card p-4">
@@ -117,6 +117,29 @@
                     :stroke-width="2"
                   />
                 </button>
+                <div class="my-1 border-t border-gray-100 dark:border-dark-700"></div>
+                <div class="px-4 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                  {{ t('usage.displayFields') }}
+                </div>
+                <button
+                  v-for="field in usageDisplayFields"
+                  :key="field.key"
+                  type="button"
+                  :data-testid="`usage-display-toggle-${field.key}`"
+                  @click="toggleDisplayField(field.key)"
+                  class="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
+                >
+                  <span>{{ field.label() }}</span>
+                  <Icon v-if="isDisplayFieldVisible(field.key)" name="check" size="sm" class="text-primary-500" />
+                </button>
+                <button
+                  type="button"
+                  data-testid="usage-display-reset"
+                  class="mt-1 w-full border-t border-gray-100 px-4 py-2 text-left text-sm text-gray-500 hover:bg-gray-100 dark:border-dark-700 dark:text-gray-400 dark:hover:bg-dark-700"
+                  @click="usageDisplay.resetPreferences()"
+                >
+                  {{ t('usage.resetDisplayPreferences') }}
+                </button>
               </div>
             </div>
           </template>
@@ -128,6 +151,7 @@
             :data="usageLogs"
             :loading="loading"
             :columns="visibleColumns"
+            :display-config="usageDisplay.config.value"
             :server-side-sort="true"
             :default-sort-key="'created_at'"
             :default-sort-order="'desc'"
@@ -190,6 +214,8 @@ import { saveAs } from 'file-saver'
 import { useRoute } from 'vue-router'
 import { useAppStore } from '@/stores/app'; import { adminAPI } from '@/api/admin'; import { adminUsageAPI } from '@/api/admin/usage'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
+import { useUsageDisplay } from '@/composables/useUsageDisplay'
+import { outputTokensPerSecond } from '@/utils/usageDisplay'
 import { formatReasoningEffort } from '@/utils/format'
 import { resolveUsageRequestType, requestTypeToLegacyStream } from '@/utils/usageRequestType'
 import AppLayout from '@/components/layout/AppLayout.vue'; import Pagination from '@/components/common/Pagination.vue'; import Select from '@/components/common/Select.vue'; import DateRangePicker from '@/components/common/DateRangePicker.vue'
@@ -209,6 +235,7 @@ import type { AdminUsageLog, TrendDataPoint, ModelStat, GroupStat, EndpointStat,
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const usageDisplay = useUsageDisplay('usage-display-preferences')
 type DistributionMetric = 'tokens' | 'actual_cost'
 type EndpointSource = 'inbound' | 'upstream' | 'path'
 type ModelDistributionSource = 'requested' | 'upstream' | 'mapping'
@@ -589,6 +616,7 @@ const exportToExcel = async () => {
       t('admin.usage.cacheReadCost'), t('admin.usage.cacheCreationCost'),
       t('usage.rate'), t('usage.accountMultiplier'), t('usage.original'), t('usage.userBilled'), t('usage.accountBilled'),
       t('usage.firstToken'), t('usage.duration'),
+      ...(usageDisplay.hasPersonalPreferences.value && usageDisplay.config.value.fields.speed ? [t(usageDisplay.config.value.speed_formula === 'after_first_token' ? 'usage.generationSpeed' : 'usage.outputSpeed')] : []),
       t('admin.usage.requestId'), t('admin.usage.upstreamRequestId'), t('usage.userAgent'), t('admin.usage.ipAddress')
     ]
     const ws = XLSX.utils.aoa_to_sheet([headers])
@@ -608,6 +636,7 @@ const exportToExcel = async () => {
         log.rate_multiplier?.toPrecision(4) || '1.00', (log.account_rate_multiplier ?? 1).toPrecision(4),
         log.total_cost?.toFixed(6) || '0.000000', log.actual_cost?.toFixed(6) || '0.000000',
         ((log.account_stats_cost ?? log.total_cost) * (log.account_rate_multiplier ?? 1)).toFixed(6), log.first_token_ms ?? '', log.duration_ms,
+        usageDisplay.hasPersonalPreferences.value && usageDisplay.config.value.fields.speed ? (outputTokensPerSecond(log, usageDisplay.config.value.speed_formula) ?? '') : '',
         log.request_id || '', log.upstream_request_id || '', log.user_agent || '', log.ip_address || ''
       ])
       if (rows.length) {
@@ -650,6 +679,7 @@ const allColumns = computed(() => [
   { key: 'tokens', label: t('usage.tokens'), sortable: false },
   { key: 'cost', label: t('usage.cost'), sortable: false },
   { key: 'latency', label: t('usage.latency'), sortable: false },
+  { key: 'output_speed', label: t(usageDisplay.config.value.speed_formula === 'after_first_token' ? 'usage.generationSpeed' : 'usage.outputSpeed'), sortable: false },
   { key: 'created_at', label: t('usage.time'), sortable: true },
   { key: 'request_id', label: t('admin.usage.requestId'), sortable: false },
   { key: 'upstream_request_id', label: t('admin.usage.upstreamRequestId'), sortable: false },
@@ -658,16 +688,38 @@ const allColumns = computed(() => [
 ])
 
 const hiddenColumns = reactive<Set<string>>(new Set())
+const usageDisplayFields = [
+  { key: 'input_tokens', label: () => t('usage.inputTokens') },
+  { key: 'output_tokens', label: () => t('usage.outputTokens') },
+  { key: 'cache_read_tokens', label: () => t('usage.cacheReadTokens') },
+  { key: 'cache_creation_tokens', label: () => t('usage.cacheCreationTokens') },
+  { key: 'cache_ttl_breakdown', label: () => t('usage.cacheTtlBreakdown') },
+  { key: 'first_token', label: () => t('usage.firstToken') },
+  { key: 'duration', label: () => t('usage.duration') },
+  { key: 'speed', label: () => t(usageDisplay.config.value.speed_formula === 'after_first_token' ? 'usage.generationSpeed' : 'usage.outputSpeed') },
+] as const
 
 const toggleableColumns = computed(() =>
   allColumns.value.filter(col => !ALWAYS_VISIBLE.includes(col.key))
 )
 
-const visibleColumns = computed(() =>
-  allColumns.value.filter(col =>
-    ALWAYS_VISIBLE.includes(col.key) || !hiddenColumns.has(col.key)
-  )
-)
+const visibleColumns = computed(() => {
+  const fields = usageDisplay.config.value.fields
+  const tokenVisible = fields.input_tokens || fields.output_tokens || fields.cache_read_tokens || fields.cache_creation_tokens || fields.cache_ttl_breakdown
+  const latencyVisible = fields.first_token || fields.duration
+  return allColumns.value.filter(col => {
+    if (ALWAYS_VISIBLE.includes(col.key)) return true
+    if (col.key === 'tokens') return tokenVisible && !hiddenColumns.has(col.key)
+    if (col.key === 'latency') return latencyVisible && !hiddenColumns.has(col.key)
+    if (col.key === 'output_speed') return fields.speed && !hiddenColumns.has(col.key)
+    return !hiddenColumns.has(col.key)
+  })
+})
+
+const isDisplayFieldVisible = (key: string) => usageDisplay.config.value.fields[key as keyof typeof usageDisplay.config.value.fields]
+const toggleDisplayField = (key: string) => {
+  usageDisplay.toggleField(key as keyof typeof usageDisplay.config.value.fields)
+}
 
 const isColumnVisible = (key: string) => !hiddenColumns.has(key)
 
@@ -746,18 +798,24 @@ const loadSavedErrColumns = () => {
 
 // 列设置下拉按当前 tab 分发
 const currentToggleableColumns = computed(() =>
-  activeTab.value === 'errors' ? errToggleableColumns.value : toggleableColumns.value
+  activeTab.value === 'errors'
+    ? errToggleableColumns.value
+    : toggleableColumns.value
 )
-const isCurrentColumnVisible = (key: string) =>
-  activeTab.value === 'errors' ? !errHiddenColumns.has(key) : isColumnVisible(key)
-const toggleCurrentColumn = (key: string) =>
-  activeTab.value === 'errors' ? toggleErrColumn(key) : toggleColumn(key)
+const isCurrentColumnVisible = (key: string) => {
+  if (activeTab.value === 'errors') return !errHiddenColumns.has(key)
+  return isColumnVisible(key)
+}
+const toggleCurrentColumn = (key: string) => {
+  if (activeTab.value === 'errors') return toggleErrColumn(key)
+  toggleColumn(key)
+}
 
 const loadSavedColumns = () => {
   try {
     const saved = localStorage.getItem(HIDDEN_COLUMNS_KEY)
     if (saved) {
-      (JSON.parse(saved) as string[]).forEach((key) => {
+      ;(JSON.parse(saved) as string[]).forEach((key) => {
         hiddenColumns.add(key)
       })
       const savedVersion = localStorage.getItem(HIDDEN_COLUMNS_VERSION_KEY)
@@ -873,6 +931,7 @@ onMounted(() => {
   window.setTimeout(() => {
     void loadChartData()
   }, 120)
+  void usageDisplay.load()
   loadSavedColumns()
   loadSavedErrColumns()
   document.addEventListener('click', handleColumnClickOutside)

@@ -1966,6 +1966,11 @@ export interface UsageStatsResponse {
   total_cost: number // 标准计费
   total_actual_cost: number // 实际扣除
   average_duration_ms: number
+  /** Exact aggregate output-token speed from the backend's paired sums. */
+  output_tokens_per_second?: number | null
+  /** Exact aggregate generation speed from first-token onward. */
+  generation_tokens_per_second?: number | null
+  speed_sample_count?: number
   models?: Record<string, number>
   endpoints?: EndpointStat[]
   upstream_endpoints?: EndpointStat[]

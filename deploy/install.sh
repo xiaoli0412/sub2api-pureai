@@ -2,7 +2,7 @@
 #
 # Sub2API Installation Script
 # Sub2API 安装脚本
-# Usage: curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh | bash
+# Usage: curl -sSL https://raw.githubusercontent.com/xiaoli0412/sub2api-pureai/main/deploy/install.sh | bash
 #
 
 set -e
@@ -31,7 +31,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Configuration
-GITHUB_REPO="Wei-Shaw/sub2api"
+GITHUB_REPO="xiaoli0412/sub2api-pureai"
 INSTALL_DIR="/opt/sub2api"
 SERVICE_NAME="sub2api"
 SERVICE_USER="sub2api"
@@ -473,6 +473,10 @@ check_dependencies() {
         missing+=("tar")
     fi
 
+    if ! command -v sha256sum &> /dev/null && ! command -v shasum &> /dev/null; then
+        missing+=("sha256sum or shasum")
+    fi
+
     if [ ${#missing[@]} -gt 0 ]; then
         print_error "$(msg 'missing_deps'): ${missing[*]}"
         print_info "$(msg 'install_deps_first')"
@@ -536,7 +540,7 @@ get_latest_version() {
     if [ -z "$LATEST_VERSION" ]; then
         print_error "$(msg 'failed_get_version')"
         print_info "Please check your network connection or try again later."
-        exit 1
+        return 1
     fi
 
     print_info "$(msg 'latest_version'): $LATEST_VERSION"
@@ -614,6 +618,15 @@ get_current_version() {
 }
 
 # Download and extract
+sha256_file() {
+    local file="$1"
+    if command -v sha256sum &> /dev/null; then
+        sha256sum "$file" | awk '{print $1}'
+    else
+        shasum -a 256 "$file" | awk '{print $1}'
+    fi
+}
+
 download_and_extract() {
     local version_num=${LATEST_VERSION#v}
     local archive_name="sub2api_${version_num}_${OS}_${ARCH}.tar.gz"
@@ -626,39 +639,60 @@ download_and_extract() {
     TEMP_DIR=$(mktemp -d)
     trap "rm -rf $TEMP_DIR" EXIT
 
-    # Download archive
-    if ! curl -sL "$download_url" -o "$TEMP_DIR/$archive_name"; then
+    # Download archive and checksum. -f makes HTTP errors fail instead of saving
+    # a GitHub error page as an apparently valid release asset.
+    if ! curl -fsSL "$download_url" -o "$TEMP_DIR/$archive_name"; then
         print_error "$(msg 'download_failed')"
-        exit 1
+        return 1
     fi
 
-    # Download and verify checksum
     print_info "$(msg 'verifying_checksum')"
-    if curl -sL "$checksum_url" -o "$TEMP_DIR/checksums.txt" 2>/dev/null; then
-        local expected_checksum=$(grep "$archive_name" "$TEMP_DIR/checksums.txt" | awk '{print $1}')
-        local actual_checksum=$(sha256sum "$TEMP_DIR/$archive_name" | awk '{print $1}')
-
-        if [ "$expected_checksum" != "$actual_checksum" ]; then
-            print_error "$(msg 'checksum_failed')"
-            print_error "Expected: $expected_checksum"
-            print_error "Actual: $actual_checksum"
-            exit 1
-        fi
-        print_success "$(msg 'checksum_verified')"
-    else
-        print_warning "$(msg 'checksum_not_found')"
+    if ! curl -fsSL "$checksum_url" -o "$TEMP_DIR/checksums.txt"; then
+        print_error "$(msg 'checksum_not_found')"
+        return 1
     fi
+
+    local expected_checksum
+    expected_checksum=$(awk -v name="$archive_name" '$2 == name || $2 == "*" name {print $1; exit}' "$TEMP_DIR/checksums.txt")
+    local actual_checksum
+    actual_checksum=$(sha256_file "$TEMP_DIR/$archive_name")
+    if [ -z "$expected_checksum" ] || [ "$expected_checksum" != "$actual_checksum" ]; then
+        print_error "$(msg 'checksum_failed')"
+        print_error "Expected: ${expected_checksum:-<missing>}"
+        print_error "Actual: $actual_checksum"
+        return 1
+    fi
+    print_success "$(msg 'checksum_verified')"
 
     # Extract
     print_info "$(msg 'extracting')"
-    tar -xzf "$TEMP_DIR/$archive_name" -C "$TEMP_DIR"
+    if ! tar -xzf "$TEMP_DIR/$archive_name" -C "$TEMP_DIR"; then
+        print_error "$(msg 'extracting') failed"
+        return 1
+    fi
+    if [ ! -f "$TEMP_DIR/sub2api" ]; then
+        print_error "$(msg 'extracting') failed: sub2api binary not found"
+        return 1
+    fi
 
     # Create install directory
     mkdir -p "$INSTALL_DIR"
 
-    # Copy binary
-    cp "$TEMP_DIR/sub2api" "$INSTALL_DIR/sub2api"
-    chmod +x "$INSTALL_DIR/sub2api"
+    # Copy binary to a temporary sibling, then atomically replace the target.
+    # Callers may have already made a backup; never destroy the active binary
+    # until archive, extraction, and checksum verification have all succeeded.
+    local staged_binary="$INSTALL_DIR/.sub2api.new"
+    rm -f "$staged_binary"
+    if ! cp "$TEMP_DIR/sub2api" "$staged_binary" || ! chmod +x "$staged_binary"; then
+        rm -f "$staged_binary"
+        print_error "$(msg 'binary_installed') failed"
+        return 1
+    fi
+    if ! mv -f "$staged_binary" "$INSTALL_DIR/sub2api"; then
+        rm -f "$staged_binary"
+        print_error "$(msg 'binary_installed') failed"
+        return 1
+    fi
 
     # Copy deploy files if they exist in the archive
     if [ -d "$TEMP_DIR/deploy" ]; then
@@ -718,7 +752,7 @@ install_service() {
     cat > /etc/systemd/system/sub2api.service << EOF
 [Unit]
 Description=Sub2API - AI API Gateway Platform
-Documentation=https://github.com/Wei-Shaw/sub2api
+Documentation=https://github.com/xiaoli0412/sub2api-pureai
 After=network.target postgresql.service redis.service
 Wants=postgresql.service redis.service
 
@@ -851,13 +885,67 @@ print_completion() {
     echo "=============================================="
 }
 
+# Restore a previously active binary after a failed upgrade step. Keep the
+# backup file in place so the explicit rollback path remains available.
+restore_backup_binary() {
+    local backup_path="$1"
+    local restore_path="$INSTALL_DIR/.sub2api.restore"
+
+    if [ ! -f "$backup_path" ]; then
+        print_error "Failed to restore binary: backup not found at $backup_path"
+        return 1
+    fi
+
+    rm -f "$restore_path"
+    if ! cp "$backup_path" "$restore_path" || ! chmod +x "$restore_path" || ! mv -f "$restore_path" "$INSTALL_DIR/sub2api"; then
+        rm -f "$restore_path"
+        print_error "Failed to restore binary from $backup_path"
+        return 1
+    fi
+    if ! chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/sub2api" 2>/dev/null; then
+        print_error "Previous binary was restored, but ownership could not be reset."
+        return 1
+    fi
+    return 0
+}
+
+recover_failed_upgrade() {
+    local backup_path="$1"
+    local service_was_active="$2"
+    local restore_succeeded=false
+
+    systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+    if restore_backup_binary "$backup_path"; then
+        restore_succeeded=true
+        print_warning "Upgrade failed; the previous binary was restored."
+
+        if [ "$service_was_active" = true ]; then
+            if systemctl start "$SERVICE_NAME"; then
+                print_info "The previous binary is running again."
+            else
+                print_error "The previous binary was restored, but the service did not start."
+                print_info "sudo journalctl -u $SERVICE_NAME -n 50"
+                return 1
+            fi
+        fi
+    else
+        print_error "Upgrade failed and the previous binary could not be restored."
+        if [ "$service_was_active" = true ]; then
+            print_error "The service remains stopped because its active binary could not be verified."
+            print_info "sudo journalctl -u $SERVICE_NAME -n 50"
+        fi
+    fi
+
+    [ "$restore_succeeded" = true ]
+}
+
 # Upgrade function
 upgrade() {
     # Check if Sub2API is installed
     if [ ! -f "$INSTALL_DIR/sub2api" ]; then
         print_error "$(msg 'not_installed')"
         print_info "$(msg 'fresh_install_hint'): $0 install"
-        exit 1
+        return 1
     fi
 
     print_info "$(msg 'upgrading')"
@@ -866,26 +954,41 @@ upgrade() {
     CURRENT_VERSION=$("$INSTALL_DIR/sub2api" --version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
     print_info "$(msg 'current_version'): $CURRENT_VERSION"
 
-    # Stop service
-    if systemctl is-active --quiet sub2api; then
+    local service_was_active=false
+    if systemctl is-active --quiet "$SERVICE_NAME"; then
+        service_was_active=true
         print_info "$(msg 'stopping_service')"
-        systemctl stop sub2api
+        if ! systemctl stop "$SERVICE_NAME"; then
+            print_error "Failed to stop $SERVICE_NAME; upgrade cancelled."
+            return 1
+        fi
     fi
 
-    # Backup current binary
-    cp "$INSTALL_DIR/sub2api" "$INSTALL_DIR/sub2api.backup"
-    print_info "$(msg 'backup_created'): $INSTALL_DIR/sub2api.backup"
+    # Preserve the old binary before any network or extraction step. Every
+    # subsequent failure restores this exact file and, when needed, restarts it.
+    local backup_path="$INSTALL_DIR/sub2api.backup"
+    if ! cp "$INSTALL_DIR/sub2api" "$backup_path"; then
+        print_error "Failed to create binary backup."
+        [ "$service_was_active" = true ] && systemctl start "$SERVICE_NAME" 2>/dev/null || true
+        return 1
+    fi
+    print_info "$(msg 'backup_created'): $backup_path"
 
-    # Download and install new version
-    get_latest_version
-    download_and_extract
+    if ! get_latest_version || ! download_and_extract; then
+        recover_failed_upgrade "$backup_path" "$service_was_active"
+        return 1
+    fi
 
-    # Set permissions
-    chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/sub2api"
+    if ! chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/sub2api"; then
+        recover_failed_upgrade "$backup_path" "$service_was_active"
+        return 1
+    fi
 
-    # Start service
     print_info "$(msg 'starting_service')"
-    systemctl start sub2api
+    if ! systemctl start "$SERVICE_NAME"; then
+        recover_failed_upgrade "$backup_path" "$service_was_active"
+        return 1
+    fi
 
     print_success "$(msg 'upgrade_complete')"
 }
@@ -919,31 +1022,45 @@ install_version() {
     fi
 
     # Stop service if running
+    local service_was_active=false
     if systemctl is-active --quiet sub2api; then
+        service_was_active=true
         print_info "$(msg 'stopping_service')"
-        systemctl stop sub2api
+        if ! systemctl stop sub2api; then
+            print_error "Failed to stop sub2api; version change cancelled."
+            return 1
+        fi
     fi
 
     # Backup current binary (for potential recovery)
-    if [ -f "$INSTALL_DIR/sub2api" ]; then
-        local backup_name
-        if [ "$current_version" != "unknown" ] && [ "$current_version" != "not_installed" ]; then
-            backup_name="sub2api.backup.${current_version}"
-        else
-            backup_name="sub2api.backup.$(date +%Y%m%d%H%M%S)"
-        fi
-        cp "$INSTALL_DIR/sub2api" "$INSTALL_DIR/$backup_name"
-        print_info "$(msg 'backup_created'): $INSTALL_DIR/$backup_name"
+    local backup_name
+    if [ "$current_version" != "unknown" ] && [ "$current_version" != "not_installed" ]; then
+        backup_name="sub2api.backup.${current_version}"
+    else
+        backup_name="sub2api.backup.$(date +%Y%m%d%H%M%S)"
     fi
+    if ! cp "$INSTALL_DIR/sub2api" "$INSTALL_DIR/$backup_name"; then
+        print_error "Failed to create version backup."
+        [ "$service_was_active" = true ] && systemctl start sub2api 2>/dev/null || true
+        return 1
+    fi
+    print_info "$(msg 'backup_created'): $INSTALL_DIR/$backup_name"
 
     # Set LATEST_VERSION to the target version for download_and_extract
     LATEST_VERSION="$target_version"
 
-    # Download and install
-    download_and_extract
-
-    # Set permissions
-    chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/sub2api"
+    # Keep the standard backup path for consistency with `upgrade` and the UI
+    # rollback command, while retaining the versioned copy above.
+    local restore_backup="$INSTALL_DIR/sub2api.backup"
+    if ! cp "$INSTALL_DIR/$backup_name" "$restore_backup"; then
+        print_error "Failed to create rollback backup."
+        [ "$service_was_active" = true ] && systemctl start sub2api 2>/dev/null || true
+        return 1
+    fi
+    if ! download_and_extract || ! chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/sub2api"; then
+        recover_failed_upgrade "$restore_backup" "$service_was_active"
+        return 1
+    fi
 
     # Start service
     print_info "$(msg 'starting_service')"
@@ -952,6 +1069,8 @@ install_version() {
     else
         print_error "$(msg 'service_start_failed')"
         print_info "sudo journalctl -u sub2api -n 50"
+        recover_failed_upgrade "$restore_backup" "$service_was_active"
+        return 1
     fi
 
     # Print completion message

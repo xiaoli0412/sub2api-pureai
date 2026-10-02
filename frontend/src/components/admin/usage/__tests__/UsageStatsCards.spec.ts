@@ -17,6 +17,8 @@ const messages: Record<string, string> = {
   'usage.accountCost': 'Cost',
   'usage.standardCost': 'Standard',
   'usage.avgDuration': 'Avg Duration',
+  'usage.avgOutputSpeed': 'Avg output speed',
+  'usage.speedUnit': 'Token/s',
 }
 
 vi.mock('vue-i18n', async () => {
@@ -41,6 +43,8 @@ const stats = {
   total_actual_cost: 0.001,
   total_account_cost: 0.001,
   average_duration_ms: 250,
+  output_tokens_per_second: 12.345,
+  generation_tokens_per_second: 20,
 }
 
 describe('UsageStatsCards', () => {
@@ -63,6 +67,25 @@ describe('UsageStatsCards', () => {
     expect(text).toContain('12')
     expect(text).toContain('Cache Read')
     expect(text).toContain('22')
+  })
+
+  it('uses the backend aggregate speed field instead of averaging rows', () => {
+    const wrapper = mount(UsageStatsCards, {
+      props: { stats },
+      global: { stubs: { Icon: true } },
+    })
+
+    expect(wrapper.text()).toContain('12.35 Token/s')
+  })
+
+  it('shows nullable aggregate speed as a dash', () => {
+    const wrapper = mount(UsageStatsCards, {
+      props: { stats: { ...stats, output_tokens_per_second: null } },
+      global: { stubs: { Icon: true } },
+    })
+
+    expect(wrapper.text()).toContain('Avg output speed')
+    expect(wrapper.text()).toContain('-')
   })
 
   it('keeps the cache tooltip out of the layout while it is hidden', () => {

@@ -16,9 +16,105 @@ import (
 	"github.com/lib/pq"
 )
 
+// usageLogSpeedEligibilitySQL defines the common text-output eligibility rules
+// for every usage statistics endpoint. media_type was removed from the current
+// schema, so reading it from the row JSON keeps legacy databases compatible and
+// naturally yields NULL for current rows.
+func usageLogSpeedEligibilitySQL(alias string) string {
+	column := func(name string) string {
+		if alias == "" {
+			return name
+		}
+		return alias + "." + name
+	}
+	relation := alias
+	if relation == "" {
+		relation = "usage_logs"
+	}
+	mediaType := fmt.Sprintf("to_jsonb(%s)->>'media_type'", relation)
+	return fmt.Sprintf(`
+		COALESCE(%s, 0) <= 0
+		AND COALESCE(%s, 0) <= 0
+		AND COALESCE(%s, 0) <= 0
+		AND COALESCE(%s, 0) <= 0
+		AND COALESCE(%s, '') NOT IN ('image', 'video')
+		AND (%s IS NULL OR TRIM(%s) = '' OR LOWER(TRIM(%s)) = 'text')
+		AND COALESCE(%s, 0) NOT IN (4, 5)`,
+		column("image_count"),
+		column("image_input_tokens"),
+		column("image_output_tokens"),
+		column("video_count"),
+		column("billing_mode"),
+		mediaType, mediaType, mediaType,
+		column("request_type"),
+	)
+}
+
+func usageLogGenerationSpeedEligibilitySQL(alias string) string {
+	column := func(name string) string {
+		if alias == "" {
+			return name
+		}
+		return alias + "." + name
+	}
+	return usageLogSpeedEligibilitySQL(alias) + fmt.Sprintf(
+		` AND (%s IS TRUE OR COALESCE(%s, 0) IN (2, 3))`,
+		column("stream"), column("request_type"),
+	)
+}
+
+// usageLogSpeedAggregatesSQL deliberately returns paired sums. Numerator,
+// denominator, and sample count all use identical predicates, preventing rows
+// with missing/invalid timing from biasing either speed metric.
+func usageLogSpeedAggregatesSQL(alias string) string {
+	column := func(name string) string {
+		if alias == "" {
+			return name
+		}
+		return alias + "." + name
+	}
+	outputTokens := column("output_tokens")
+	durationMs := column("duration_ms")
+	firstTokenMs := column("first_token_ms")
+	eligible := usageLogSpeedEligibilitySQL(alias)
+	generationEligible := usageLogGenerationSpeedEligibilitySQL(alias)
+	return fmt.Sprintf(`
+		SUM(%s) FILTER (WHERE %s AND %s > 0 AND %s > 0) AS speed_output_tokens,
+		SUM(%s) FILTER (WHERE %s AND %s > 0 AND %s > 0) AS speed_duration_ms,
+		COUNT(*) FILTER (WHERE %s AND %s > 0 AND %s > 0) AS speed_sample_count,
+		SUM(%s) FILTER (WHERE %s AND %s > 0 AND %s > 0 AND %s >= 0 AND %s < %s) AS generation_output_tokens,
+		SUM(%s - %s) FILTER (WHERE %s AND %s > 0 AND %s > 0 AND %s >= 0 AND %s < %s) AS generation_duration_ms,
+		COUNT(*) FILTER (WHERE %s AND %s > 0 AND %s > 0 AND %s >= 0 AND %s < %s) AS generation_speed_sample_count`,
+		outputTokens, eligible, outputTokens, durationMs,
+		durationMs, eligible, outputTokens, durationMs,
+		eligible, outputTokens, durationMs,
+		outputTokens, generationEligible, outputTokens, durationMs, firstTokenMs, firstTokenMs, durationMs,
+		durationMs, firstTokenMs, generationEligible, outputTokens, durationMs, firstTokenMs, firstTokenMs, durationMs,
+		generationEligible, outputTokens, durationMs, firstTokenMs, firstTokenMs, durationMs,
+	)
+}
+
+func applyUsageLogSpeedAggregates(
+	stats *usagestats.UsageStats,
+	speedOutputTokens, speedDurationMs, speedSampleCount sql.NullInt64,
+	generationOutputTokens, generationDurationMs, generationSpeedSampleCount sql.NullInt64,
+) {
+	if speedSampleCount.Valid {
+		stats.SpeedSampleCount = speedSampleCount.Int64
+	}
+	if speedSampleCount.Valid && speedSampleCount.Int64 > 0 && speedOutputTokens.Valid && speedDurationMs.Valid && speedDurationMs.Int64 > 0 {
+		rate := float64(speedOutputTokens.Int64) * 1000 / float64(speedDurationMs.Int64)
+		stats.OutputTokensPerSecond = &rate
+	}
+	if generationSpeedSampleCount.Valid && generationSpeedSampleCount.Int64 > 0 && generationOutputTokens.Valid && generationDurationMs.Valid && generationDurationMs.Int64 > 0 {
+		rate := float64(generationOutputTokens.Int64) * 1000 / float64(generationDurationMs.Int64)
+		stats.GenerationTokensPerSecond = &rate
+	}
+}
+
 // GetUserStatsAggregated returns aggregated usage statistics for a user using database-level aggregation
 func (r *usageLogRepository) GetUserStatsAggregated(ctx context.Context, userID int64, startTime, endTime time.Time) (*usagestats.UsageStats, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT
 			COUNT(*) as total_requests,
 			COALESCE(SUM(input_tokens), 0) as total_input_tokens,
@@ -28,12 +124,17 @@ func (r *usageLogRepository) GetUserStatsAggregated(ctx context.Context, userID 
 			COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens,
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
-			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms
+			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms,
+			%s
 		FROM usage_logs
 		WHERE user_id = $1 AND created_at >= $2 AND created_at < $3
-	`
+	`, usageLogSpeedAggregatesSQL(""))
 
-	var stats usagestats.UsageStats
+	var (
+		stats                                                                    usagestats.UsageStats
+		speedOutputTokens, speedDurationMs, speedSampleCount                     sql.NullInt64
+		generationOutputTokens, generationDurationMs, generationSpeedSampleCount sql.NullInt64
+	)
 	if err := scanSingleRow(
 		ctx,
 		r.sql,
@@ -48,16 +149,23 @@ func (r *usageLogRepository) GetUserStatsAggregated(ctx context.Context, userID 
 		&stats.TotalCost,
 		&stats.TotalActualCost,
 		&stats.AverageDurationMs,
+		&speedOutputTokens,
+		&speedDurationMs,
+		&speedSampleCount,
+		&generationOutputTokens,
+		&generationDurationMs,
+		&generationSpeedSampleCount,
 	); err != nil {
 		return nil, err
 	}
+	applyUsageLogSpeedAggregates(&stats, speedOutputTokens, speedDurationMs, speedSampleCount, generationOutputTokens, generationDurationMs, generationSpeedSampleCount)
 	stats.TotalTokens = stats.TotalInputTokens + stats.TotalOutputTokens + stats.TotalCacheTokens
 	return &stats, nil
 }
 
 // GetAPIKeyStatsAggregated returns aggregated usage statistics for an API key using database-level aggregation
 func (r *usageLogRepository) GetAPIKeyStatsAggregated(ctx context.Context, apiKeyID int64, startTime, endTime time.Time) (*usagestats.UsageStats, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT
 			COUNT(*) as total_requests,
 			COALESCE(SUM(input_tokens), 0) as total_input_tokens,
@@ -67,12 +175,17 @@ func (r *usageLogRepository) GetAPIKeyStatsAggregated(ctx context.Context, apiKe
 			COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens,
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
-			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms
+			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms,
+			%s
 		FROM usage_logs
 		WHERE api_key_id = $1 AND created_at >= $2 AND created_at < $3
-	`
+	`, usageLogSpeedAggregatesSQL(""))
 
-	var stats usagestats.UsageStats
+	var (
+		stats                                                                    usagestats.UsageStats
+		speedOutputTokens, speedDurationMs, speedSampleCount                     sql.NullInt64
+		generationOutputTokens, generationDurationMs, generationSpeedSampleCount sql.NullInt64
+	)
 	if err := scanSingleRow(
 		ctx,
 		r.sql,
@@ -87,9 +200,16 @@ func (r *usageLogRepository) GetAPIKeyStatsAggregated(ctx context.Context, apiKe
 		&stats.TotalCost,
 		&stats.TotalActualCost,
 		&stats.AverageDurationMs,
+		&speedOutputTokens,
+		&speedDurationMs,
+		&speedSampleCount,
+		&generationOutputTokens,
+		&generationDurationMs,
+		&generationSpeedSampleCount,
 	); err != nil {
 		return nil, err
 	}
+	applyUsageLogSpeedAggregates(&stats, speedOutputTokens, speedDurationMs, speedSampleCount, generationOutputTokens, generationDurationMs, generationSpeedSampleCount)
 	stats.TotalTokens = stats.TotalInputTokens + stats.TotalOutputTokens + stats.TotalCacheTokens
 	return &stats, nil
 }
@@ -106,7 +226,7 @@ func (r *usageLogRepository) GetAPIKeyStatsAggregated(ctx context.Context, apiKe
 // 2. 只返回单行聚合结果，大幅减少数据传输量
 // 3. 利用数据库索引优化聚合查询性能
 func (r *usageLogRepository) GetAccountStatsAggregated(ctx context.Context, accountID int64, startTime, endTime time.Time) (*usagestats.UsageStats, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT
 			COUNT(*) as total_requests,
 			COALESCE(SUM(input_tokens), 0) as total_input_tokens,
@@ -116,12 +236,17 @@ func (r *usageLogRepository) GetAccountStatsAggregated(ctx context.Context, acco
 			COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens,
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
-			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms
+			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms,
+			%s
 		FROM usage_logs
 		WHERE account_id = $1 AND created_at >= $2 AND created_at < $3
-	`
+	`, usageLogSpeedAggregatesSQL(""))
 
-	var stats usagestats.UsageStats
+	var (
+		stats                                                                    usagestats.UsageStats
+		speedOutputTokens, speedDurationMs, speedSampleCount                     sql.NullInt64
+		generationOutputTokens, generationDurationMs, generationSpeedSampleCount sql.NullInt64
+	)
 	if err := scanSingleRow(
 		ctx,
 		r.sql,
@@ -136,9 +261,16 @@ func (r *usageLogRepository) GetAccountStatsAggregated(ctx context.Context, acco
 		&stats.TotalCost,
 		&stats.TotalActualCost,
 		&stats.AverageDurationMs,
+		&speedOutputTokens,
+		&speedDurationMs,
+		&speedSampleCount,
+		&generationOutputTokens,
+		&generationDurationMs,
+		&generationSpeedSampleCount,
 	); err != nil {
 		return nil, err
 	}
+	applyUsageLogSpeedAggregates(&stats, speedOutputTokens, speedDurationMs, speedSampleCount, generationOutputTokens, generationDurationMs, generationSpeedSampleCount)
 	stats.TotalTokens = stats.TotalInputTokens + stats.TotalOutputTokens + stats.TotalCacheTokens
 	return &stats, nil
 }
@@ -156,12 +288,17 @@ func (r *usageLogRepository) GetModelStatsAggregated(ctx context.Context, modelN
 			COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens,
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
-			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms
+			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms,
+			%s
 		FROM usage_logs
 		WHERE %s = $1 AND created_at >= $2 AND created_at < $3
-	`, rawUsageLogModelColumn)
+	`, usageLogSpeedAggregatesSQL(""), rawUsageLogModelColumn)
 
-	var stats usagestats.UsageStats
+	var (
+		stats                                                                    usagestats.UsageStats
+		speedOutputTokens, speedDurationMs, speedSampleCount                     sql.NullInt64
+		generationOutputTokens, generationDurationMs, generationSpeedSampleCount sql.NullInt64
+	)
 	if err := scanSingleRow(
 		ctx,
 		r.sql,
@@ -176,9 +313,16 @@ func (r *usageLogRepository) GetModelStatsAggregated(ctx context.Context, modelN
 		&stats.TotalCost,
 		&stats.TotalActualCost,
 		&stats.AverageDurationMs,
+		&speedOutputTokens,
+		&speedDurationMs,
+		&speedSampleCount,
+		&generationOutputTokens,
+		&generationDurationMs,
+		&generationSpeedSampleCount,
 	); err != nil {
 		return nil, err
 	}
+	applyUsageLogSpeedAggregates(&stats, speedOutputTokens, speedDurationMs, speedSampleCount, generationOutputTokens, generationDurationMs, generationSpeedSampleCount)
 	stats.TotalTokens = stats.TotalInputTokens + stats.TotalOutputTokens + stats.TotalCacheTokens
 	return &stats, nil
 }
@@ -621,7 +765,7 @@ func resolveEndpointColumn(endpointType string) string {
 
 // GetGlobalStats gets usage statistics for all users within a time range
 func (r *usageLogRepository) GetGlobalStats(ctx context.Context, startTime, endTime time.Time) (*UsageStats, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT
 			COUNT(*) as total_requests,
 			COALESCE(SUM(input_tokens), 0) as total_input_tokens,
@@ -629,12 +773,17 @@ func (r *usageLogRepository) GetGlobalStats(ctx context.Context, startTime, endT
 			COALESCE(SUM(cache_creation_tokens + cache_read_tokens), 0) as total_cache_tokens,
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
-			COALESCE(AVG(duration_ms), 0) as avg_duration_ms
+			COALESCE(AVG(duration_ms), 0) as avg_duration_ms,
+			%s
 		FROM usage_logs
 		WHERE created_at >= $1 AND created_at < $2
-	`
+	`, usageLogSpeedAggregatesSQL(""))
 
 	stats := &UsageStats{}
+	var (
+		speedOutputTokens, speedDurationMs, speedSampleCount                     sql.NullInt64
+		generationOutputTokens, generationDurationMs, generationSpeedSampleCount sql.NullInt64
+	)
 	if err := scanSingleRow(
 		ctx,
 		r.sql,
@@ -647,9 +796,16 @@ func (r *usageLogRepository) GetGlobalStats(ctx context.Context, startTime, endT
 		&stats.TotalCost,
 		&stats.TotalActualCost,
 		&stats.AverageDurationMs,
+		&speedOutputTokens,
+		&speedDurationMs,
+		&speedSampleCount,
+		&generationOutputTokens,
+		&generationDurationMs,
+		&generationSpeedSampleCount,
 	); err != nil {
 		return nil, err
 	}
+	applyUsageLogSpeedAggregates(stats, speedOutputTokens, speedDurationMs, speedSampleCount, generationOutputTokens, generationDurationMs, generationSpeedSampleCount)
 	stats.TotalTokens = stats.TotalInputTokens + stats.TotalOutputTokens + stats.TotalCacheTokens
 	return stats, nil
 }
@@ -707,9 +863,23 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 				total_cost,
 				actual_cost,
 				COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1) AS account_cost,
-				duration_ms
+				duration_ms,
+				first_token_ms,
+				image_count,
+				image_input_tokens,
+				image_output_tokens,
+				video_count,
+				billing_mode,
+				stream,
+				request_type,
+				to_jsonb(usage_logs)->>'media_type' AS media_type
 			FROM usage_logs
 			%s
+		), eligible AS (
+			SELECT *,
+				(%s) AS speed_eligible,
+				(%s) AS generation_speed_eligible
+			FROM scoped
 		)
 		SELECT
 			GROUPING(inbound_endpoint) AS inbound_grouped,
@@ -723,9 +893,15 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 			COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
 			COALESCE(SUM(total_cost), 0) AS cost,
 			COALESCE(SUM(actual_cost), 0) AS actual_cost,
-			COALESCE(SUM(account_cost), 0) AS account_cost,
-			COALESCE(AVG(duration_ms), 0) AS avg_duration_ms
-		FROM scoped
+				COALESCE(SUM(account_cost), 0) AS account_cost,
+				COALESCE(AVG(duration_ms), 0) AS avg_duration_ms,
+				SUM(output_tokens) FILTER (WHERE speed_eligible AND output_tokens > 0 AND duration_ms > 0) AS speed_output_tokens,
+				SUM(duration_ms) FILTER (WHERE speed_eligible AND output_tokens > 0 AND duration_ms > 0) AS speed_duration_ms,
+				COUNT(*) FILTER (WHERE speed_eligible AND output_tokens > 0 AND duration_ms > 0) AS speed_sample_count,
+				SUM(output_tokens) FILTER (WHERE generation_speed_eligible AND output_tokens > 0 AND duration_ms > 0 AND first_token_ms >= 0 AND first_token_ms < duration_ms) AS generation_output_tokens,
+				SUM(duration_ms - first_token_ms) FILTER (WHERE generation_speed_eligible AND output_tokens > 0 AND duration_ms > 0 AND first_token_ms >= 0 AND first_token_ms < duration_ms) AS generation_duration_ms,
+				COUNT(*) FILTER (WHERE generation_speed_eligible AND output_tokens > 0 AND duration_ms > 0 AND first_token_ms >= 0 AND first_token_ms < duration_ms) AS generation_speed_sample_count
+			FROM scoped
 		GROUP BY GROUPING SETS (
 			(),
 			(inbound_endpoint),
@@ -742,29 +918,31 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
+	columns, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+	withSpeedAggregates := len(columns) >= 19
 
 	for rows.Next() {
 		var (
-			inboundGrouped, upstreamGrouped                                      int
-			inboundEndpoint, upstreamEndpoint                                    sql.NullString
-			requests, inputTokens, outputTokens, cacheCreationTokens, cacheReads int64
-			cost, actualCost, accountCost, averageDurationMs                     float64
+			inboundGrouped, upstreamGrouped                                          int
+			inboundEndpoint, upstreamEndpoint                                        sql.NullString
+			requests, inputTokens, outputTokens, cacheCreationTokens, cacheReads     int64
+			speedOutputTokens, speedDurationMs, speedSampleCount                     sql.NullInt64
+			generationOutputTokens, generationDurationMs, generationSpeedSampleCount sql.NullInt64
+			cost, actualCost, accountCost, averageDurationMs                         float64
 		)
-		if err := rows.Scan(
-			&inboundGrouped,
-			&upstreamGrouped,
-			&inboundEndpoint,
-			&upstreamEndpoint,
-			&requests,
-			&inputTokens,
-			&outputTokens,
-			&cacheCreationTokens,
-			&cacheReads,
-			&cost,
-			&actualCost,
-			&accountCost,
-			&averageDurationMs,
-		); err != nil {
+		dest := []any{
+			&inboundGrouped, &upstreamGrouped, &inboundEndpoint, &upstreamEndpoint,
+			&requests, &inputTokens, &outputTokens, &cacheCreationTokens, &cacheReads,
+			&cost, &actualCost, &accountCost, &averageDurationMs,
+		}
+		if withSpeedAggregates {
+			dest = append(dest, &speedOutputTokens, &speedDurationMs, &speedSampleCount,
+				&generationOutputTokens, &generationDurationMs, &generationSpeedSampleCount)
+		}
+		if err := rows.Scan(dest...); err != nil {
 			return nil, err
 		}
 
@@ -786,6 +964,15 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 			stats.TotalActualCost = actualCost
 			totalAccountCost = accountCost
 			stats.AverageDurationMs = averageDurationMs
+			stats.SpeedSampleCount = speedSampleCount.Int64
+			if speedSampleCount.Valid && speedOutputTokens.Valid && speedDurationMs.Valid && speedDurationMs.Int64 > 0 {
+				rate := float64(speedOutputTokens.Int64) * 1000 / float64(speedDurationMs.Int64)
+				stats.OutputTokensPerSecond = &rate
+			}
+			if generationSpeedSampleCount.Valid && generationOutputTokens.Valid && generationDurationMs.Valid && generationDurationMs.Int64 > 0 {
+				rate := float64(generationOutputTokens.Int64) * 1000 / float64(generationDurationMs.Int64)
+				stats.GenerationTokensPerSecond = &rate
+			}
 		case inboundGrouped == 0 && upstreamGrouped == 1:
 			stats.Endpoints = append(stats.Endpoints, EndpointStat{
 				Endpoint: inboundEndpoint.String, Requests: requests, TotalTokens: totalTokens,

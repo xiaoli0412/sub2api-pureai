@@ -482,6 +482,9 @@ const (
 	// SettingKeyOpsRuntimeLogConfig stores JSON config for runtime log settings.
 	SettingKeyOpsRuntimeLogConfig = "ops_runtime_log_config"
 
+	// Usage display preferences are presentation-only and never affect billing.
+	SettingKeyUsageDisplayConfig = "usage_display_config"
+
 	// =========================
 	// Channel Monitor (渠道监控)
 	// =========================

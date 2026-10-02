@@ -148,7 +148,7 @@
         <template #cell-tokens="{ row }">
           <!-- 图片生成请求（仅按次计费时显示图片格式） -->
           <div v-if="isImageUsage(row)" class="flex items-center gap-1.5">
-            <svg class="h-4 w-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg class="h-4 w-4 text-indigo-500" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
             <span class="font-medium text-gray-900 dark:text-white">{{ row.image_count }}{{ t('usage.imageUnit') }}</span>
@@ -158,37 +158,46 @@
           <div v-else class="flex items-center gap-1.5">
             <div class="space-y-1 text-sm">
               <div class="flex items-center gap-2">
-                <div class="inline-flex items-center gap-1">
-                  <Icon name="arrowDown" size="sm" class="h-3.5 w-3.5 text-emerald-500" />
-                  <span class="font-medium text-gray-900 dark:text-white">{{ row.input_tokens?.toLocaleString() || 0 }}</span>
+                <div v-if="displayConfig.fields.input_tokens" class="inline-flex items-center gap-1" :title="t('usage.inputTokens')">
+                  <Icon name="arrowDown" size="sm" class="h-3.5 w-3.5 text-emerald-500" :aria-label="t('usage.inputTokens')" />
+                  <span class="font-medium text-gray-900 dark:text-white">{{ formatUsageTokens(row.input_tokens, displayConfig, locale) }}</span>
                 </div>
-                <div class="inline-flex items-center gap-1">
-                  <Icon name="arrowUp" size="sm" class="h-3.5 w-3.5 text-violet-500" />
-                  <span class="font-medium text-gray-900 dark:text-white">{{ row.output_tokens?.toLocaleString() || 0 }}</span>
+                <div v-if="displayConfig.fields.output_tokens" class="inline-flex items-center gap-1" :title="t('usage.outputTokens')">
+                  <Icon name="arrowUp" size="sm" class="h-3.5 w-3.5 text-violet-500" :aria-label="t('usage.outputTokens')" />
+                  <span class="font-medium text-gray-900 dark:text-white">{{ formatUsageTokens(row.output_tokens, displayConfig, locale) }}</span>
                 </div>
               </div>
-              <div v-if="row.cache_read_tokens > 0 || row.cache_creation_tokens > 0" class="flex items-center gap-2">
-                <div v-if="row.cache_read_tokens > 0" class="inline-flex items-center gap-1">
-                  <svg class="h-3.5 w-3.5 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>
-                  <span class="font-medium text-sky-600 dark:text-sky-400">{{ formatCacheTokens(row.cache_read_tokens) }}</span>
+              <div v-if="hasVisibleCacheTokens(row)" class="flex items-center gap-2">
+                <div v-if="displayConfig.fields.cache_read_tokens && row.cache_read_tokens > 0" class="inline-flex items-center gap-1" :title="t('usage.cacheReadTokens')">
+                  <svg class="h-3.5 w-3.5 text-sky-500" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>
+                  <span class="font-medium text-sky-600 dark:text-sky-400">{{ formatUsageTokens(row.cache_read_tokens, displayConfig, locale) }}</span>
                 </div>
-                <div v-if="row.cache_creation_tokens > 0" class="inline-flex items-center gap-1">
-                  <svg class="h-3.5 w-3.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                  <span class="font-medium text-amber-600 dark:text-amber-400">{{ formatCacheTokens(row.cache_creation_tokens) }}</span>
-                  <span v-if="row.cache_creation_1h_tokens > 0" class="inline-flex items-center rounded px-1 py-px text-[10px] font-medium leading-tight bg-orange-100 text-orange-600 ring-1 ring-inset ring-orange-200 dark:bg-orange-500/20 dark:text-orange-400 dark:ring-orange-500/30">1h</span>
-                  <span v-if="row.cache_ttl_overridden" :title="t('usage.cacheTtlOverriddenHint')" class="inline-flex items-center rounded px-1 py-px text-[10px] font-medium leading-tight bg-rose-100 text-rose-600 ring-1 ring-inset ring-rose-200 dark:bg-rose-500/20 dark:text-rose-400 dark:ring-rose-500/30 cursor-help">R</span>
+                <template v-if="displayConfig.fields.cache_ttl_breakdown && hasCacheCreationTtlBreakdown(row)">
+                  <div v-if="row.cache_creation_5m_tokens > 0" class="inline-flex items-center gap-1" :title="t('admin.usage.cacheCreation5mTokens')">
+                    <svg class="h-3.5 w-3.5 text-amber-500" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                    <span class="font-medium text-amber-600 dark:text-amber-400">{{ formatUsageTokens(row.cache_creation_5m_tokens, displayConfig, locale) }}</span><span class="text-[10px] text-amber-500">5m</span>
+                  </div>
+                  <div v-if="row.cache_creation_1h_tokens > 0" class="inline-flex items-center gap-1" :title="t('admin.usage.cacheCreation1hTokens')">
+                    <svg class="h-3.5 w-3.5 text-orange-500" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 002-2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                    <span class="font-medium text-orange-600 dark:text-orange-400">{{ formatUsageTokens(row.cache_creation_1h_tokens, displayConfig, locale) }}</span><span class="text-[10px] text-orange-500">1h</span>
+                  </div>
+                </template>
+                <div v-else-if="displayConfig.fields.cache_creation_tokens && row.cache_creation_tokens > 0" class="inline-flex items-center gap-1" :title="t('usage.cacheCreationTokens')">
+                  <svg class="h-3.5 w-3.5 text-amber-500" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                  <span class="font-medium text-amber-600 dark:text-amber-400">{{ formatUsageTokens(row.cache_creation_tokens, displayConfig, locale) }}</span>
                 </div>
+                <span v-if="displayConfig.fields.cache_creation_tokens && row.cache_ttl_overridden" :title="t('usage.cacheTtlOverriddenHint')" class="inline-flex cursor-help items-center rounded px-1 py-px text-[10px] font-medium leading-tight bg-rose-100 text-rose-600 ring-1 ring-inset ring-rose-200 dark:bg-rose-500/20 dark:text-rose-400 dark:ring-rose-500/30">R</span>
               </div>
               <div v-if="hasImageInputTokens(row)" class="flex items-center gap-2">
-                <div class="inline-flex items-center gap-1">
-                  <svg class="h-3.5 w-3.5 text-fuchsia-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                  <span class="font-medium text-fuchsia-600 dark:text-fuchsia-400">{{ row.image_input_tokens.toLocaleString() }}</span>
+                <div class="inline-flex items-center gap-1" :title="t('usage.imageInputTokens')">
+                  <svg class="h-3.5 w-3.5 text-fuchsia-500" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 002-2H6a2 2 0 002-2v12a2 2 0 002 2z" /></svg>
+                  <span class="font-medium text-fuchsia-600 dark:text-fuchsia-400">{{ formatUsageTokens(row.image_input_tokens, displayConfig, locale) }}</span>
                 </div>
               </div>
               <div v-if="hasImageOutputTokens(row)" class="flex items-center gap-2">
-                <div class="inline-flex items-center gap-1">
-                  <svg class="h-3.5 w-3.5 text-pink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                  <span class="font-medium text-pink-600 dark:text-pink-400">{{ row.image_output_tokens.toLocaleString() }}</span>
+                <div class="inline-flex items-center gap-1" :title="t('usage.imageOutputTokens')">
+                  <svg class="h-3.5 w-3.5 text-pink-500" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 002-2h-2z" /></svg>
+                  <span class="font-medium text-pink-600 dark:text-pink-400">{{ formatUsageTokens(row.image_output_tokens, displayConfig, locale) }}</span>
                 </div>
               </div>
             </div>
@@ -198,7 +207,7 @@
               @mouseenter="showTokenTooltip($event, row)"
               @mouseleave="hideTokenTooltip"
             >
-              <div class="flex h-4 w-4 cursor-help items-center justify-center rounded-full bg-gray-100 transition-colors group-hover:bg-blue-100 dark:bg-gray-700 dark:group-hover:bg-blue-900/50">
+              <div class="flex h-4 w-4 cursor-help items-center justify-center rounded-full bg-gray-100 transition-colors group-hover:bg-blue-100 dark:bg-gray-700 dark:group-hover:bg-blue-900/50" :title="t('usage.tokenDetails')" :aria-label="t('usage.tokenDetails')" role="img">
                 <Icon name="infoCircle" size="xs" class="text-gray-400 group-hover:text-blue-500 dark:text-gray-500 dark:group-hover:text-blue-400" />
               </div>
             </div>
@@ -233,22 +242,32 @@
 
         <!-- 合并首字/总耗时的健康度列：左侧色条上端随首字档、下端随总耗时档，中段(40%-60%)短渐变过渡，便于纵向扫视整体健康状况 -->
         <template #cell-latency="{ row }">
-          <div class="flex items-stretch gap-2">
+          <div v-if="displayConfig.fields.first_token || displayConfig.fields.duration" class="flex items-stretch gap-2">
             <span
               class="w-1 shrink-0 rounded-full"
-              :class="row.first_token_ms != null
-                ? ['bg-gradient-to-b from-40% to-60%', LATENCY_BAR_FROM_CLASSES[firstTokenSeverity(row.first_token_ms)], LATENCY_BAR_TO_CLASSES[durationSeverity(row.duration_ms ?? 0)]]
-                : LATENCY_BAR_CLASSES[durationSeverity(row.duration_ms ?? 0)]"
+              :class="latencyBarClass(row)"
               aria-hidden="true"
             ></span>
             <div class="grid grid-cols-[max-content_max-content] items-baseline gap-x-2 gap-y-0.5 text-xs">
-              <span class="text-gray-400 dark:text-gray-500">{{ t('usage.latencyFirstToken') }}</span>
-              <span v-if="row.first_token_ms != null" class="font-medium tabular-nums" :class="LATENCY_TEXT_CLASSES[firstTokenSeverity(row.first_token_ms)]">{{ formatDuration(row.first_token_ms) }}</span>
-              <span v-else class="text-gray-400 dark:text-gray-500">-</span>
-              <span class="text-gray-400 dark:text-gray-500">{{ t('usage.latencyDuration') }}</span>
-              <span class="font-medium tabular-nums" :class="LATENCY_TEXT_CLASSES[durationSeverity(row.duration_ms ?? 0)]">{{ formatDuration(row.duration_ms) }}</span>
+              <template v-if="displayConfig.fields.first_token">
+                <span class="text-gray-400 dark:text-gray-500">{{ t('usage.latencyFirstToken') }}</span>
+                <span class="font-medium tabular-nums" :class="latencyTextClass(row.first_token_ms, displayConfig.first_token_thresholds)">{{ formatUsageDuration(row.first_token_ms, displayConfig) }}</span>
+              </template>
+              <template v-if="displayConfig.fields.duration">
+                <span class="text-gray-400 dark:text-gray-500">{{ t('usage.latencyDuration') }}</span>
+                <span class="font-medium tabular-nums" :class="latencyTextClass(row.duration_ms, displayConfig.duration_thresholds)">{{ formatUsageDuration(row.duration_ms, displayConfig) }}</span>
+              </template>
             </div>
           </div>
+          <span v-else class="text-gray-400 dark:text-gray-500">-</span>
+        </template>
+
+        <template #cell-output_speed="{ row }">
+          <span
+            class="tabular-nums"
+            :class="speedTextClass(row)"
+            :title="speedHint()"
+          >{{ formattedSpeed(row) }}<span v-if="formattedSpeed(row) !== '-'"> {{ t('usage.speedUnit') }}</span></span>
         </template>
 
         <template #cell-created_at="{ value }">
@@ -323,11 +342,11 @@
         <div class="space-y-1.5">
           <div>
             <div class="text-xs font-semibold text-gray-300 mb-1">{{ t('usage.tokenDetails') }}</div>
-            <div v-if="tokenTooltipData && tokenTooltipData.input_tokens > 0 && !hasImageInputTokens(tokenTooltipData)" class="flex items-center justify-between gap-4">
+            <div v-if="displayConfig.fields.input_tokens && tokenTooltipData && tokenTooltipData.input_tokens > 0 && !hasImageInputTokens(tokenTooltipData)" class="flex items-center justify-between gap-4">
               <span class="text-gray-400">{{ t('admin.usage.inputTokens') }}</span>
               <span class="font-medium text-white">{{ tokenTooltipData.input_tokens.toLocaleString() }}</span>
             </div>
-            <div v-if="tokenTooltipData && hasImageInputTokens(tokenTooltipData) && textInputTokens(tokenTooltipData) > 0" class="flex items-center justify-between gap-4">
+            <div v-if="displayConfig.fields.input_tokens && tokenTooltipData && hasImageInputTokens(tokenTooltipData) && textInputTokens(tokenTooltipData) > 0" class="flex items-center justify-between gap-4">
               <span class="text-gray-400">{{ t('admin.usage.inputTokens') }}</span>
               <span class="font-medium text-white">{{ textInputTokens(tokenTooltipData).toLocaleString() }}</span>
             </div>
@@ -335,11 +354,11 @@
               <span class="text-gray-400">{{ t('usage.imageInputTokens') }}</span>
               <span class="font-medium text-fuchsia-300">{{ tokenTooltipData.image_input_tokens.toLocaleString() }}</span>
             </div>
-            <div v-if="tokenTooltipData && tokenTooltipData.output_tokens > 0 && !hasImageOutputTokens(tokenTooltipData)" class="flex items-center justify-between gap-4">
+            <div v-if="displayConfig.fields.output_tokens && tokenTooltipData && tokenTooltipData.output_tokens > 0 && !hasImageOutputTokens(tokenTooltipData)" class="flex items-center justify-between gap-4">
               <span class="text-gray-400">{{ t('admin.usage.outputTokens') }}</span>
               <span class="font-medium text-white">{{ tokenTooltipData.output_tokens.toLocaleString() }}</span>
             </div>
-            <div v-if="tokenTooltipData && hasImageOutputTokens(tokenTooltipData) && textOutputTokens(tokenTooltipData) > 0" class="flex items-center justify-between gap-4">
+            <div v-if="displayConfig.fields.output_tokens && tokenTooltipData && hasImageOutputTokens(tokenTooltipData) && textOutputTokens(tokenTooltipData) > 0" class="flex items-center justify-between gap-4">
               <span class="text-gray-400">{{ t('admin.usage.outputTokens') }}</span>
               <span class="font-medium text-white">{{ textOutputTokens(tokenTooltipData).toLocaleString() }}</span>
             </div>
@@ -347,9 +366,9 @@
               <span class="text-gray-400">{{ t('usage.imageOutputTokens') }}</span>
               <span class="font-medium text-pink-300">{{ tokenTooltipData.image_output_tokens.toLocaleString() }}</span>
             </div>
-            <div v-if="tokenTooltipData && tokenTooltipData.cache_creation_tokens > 0">
+            <div v-if="displayConfig.fields.cache_creation_tokens && tokenTooltipData && tokenTooltipData.cache_creation_tokens > 0">
               <!-- 有 5m/1h 明细时，展开显示 -->
-              <template v-if="tokenTooltipData.cache_creation_5m_tokens > 0 || tokenTooltipData.cache_creation_1h_tokens > 0">
+              <template v-if="displayConfig.fields.cache_ttl_breakdown && (tokenTooltipData.cache_creation_5m_tokens > 0 || tokenTooltipData.cache_creation_1h_tokens > 0)">
                 <div v-if="tokenTooltipData.cache_creation_5m_tokens > 0" class="flex items-center justify-between gap-4">
                   <span class="text-gray-400 flex items-center gap-1.5">
                     {{ t('admin.usage.cacheCreation5mTokens') }}
@@ -371,21 +390,21 @@
                 <span class="font-medium text-white">{{ tokenTooltipData.cache_creation_tokens.toLocaleString() }}</span>
               </div>
             </div>
-            <div v-if="tokenTooltipData && tokenTooltipData.cache_ttl_overridden" class="flex items-center justify-between gap-4">
+            <div v-if="displayConfig.fields.cache_creation_tokens && displayConfig.fields.cache_ttl_breakdown && tokenTooltipData && tokenTooltipData.cache_ttl_overridden" class="flex items-center justify-between gap-4">
               <span class="text-gray-400 flex items-center gap-1.5">
                 {{ t('usage.cacheTtlOverriddenLabel') }}
-                <span class="inline-flex items-center rounded px-1 py-px text-[10px] font-medium leading-tight bg-rose-500/20 text-rose-400 ring-1 ring-inset ring-rose-500/30">R-{{ tokenTooltipData.cache_creation_1h_tokens > 0 ? '5m' : '1H' }}</span>
+                <span class="inline-flex items-center rounded px-1 py-px text-[10px] font-medium leading-tight bg-rose-500/20 text-rose-400 ring-1 ring-inset ring-rose-500/30">R-{{ tokenTooltipData?.cache_creation_1h_tokens > 0 ? '5m' : '1H' }}</span>
               </span>
-              <span class="font-medium text-rose-400">{{ tokenTooltipData.cache_creation_1h_tokens > 0 ? t('usage.cacheTtlOverridden1h') : t('usage.cacheTtlOverridden5m') }}</span>
+              <span class="font-medium text-rose-400">{{ tokenTooltipData?.cache_creation_1h_tokens > 0 ? t('usage.cacheTtlOverridden1h') : t('usage.cacheTtlOverridden5m') }}</span>
             </div>
-            <div v-if="tokenTooltipData && tokenTooltipData.cache_read_tokens > 0" class="flex items-center justify-between gap-4">
+            <div v-if="displayConfig.fields.cache_read_tokens && tokenTooltipData && tokenTooltipData.cache_read_tokens > 0" class="flex items-center justify-between gap-4">
               <span class="text-gray-400">{{ t('admin.usage.cacheReadTokens') }}</span>
               <span class="font-medium text-white">{{ tokenTooltipData.cache_read_tokens.toLocaleString() }}</span>
             </div>
           </div>
           <div class="flex items-center justify-between gap-6 border-t border-gray-700 pt-1.5">
             <span class="text-gray-400">{{ t('usage.totalTokens') }}</span>
-            <span class="font-semibold text-blue-400">{{ ((tokenTooltipData?.input_tokens || 0) + (tokenTooltipData?.output_tokens || 0) + (tokenTooltipData?.cache_creation_tokens || 0) + (tokenTooltipData?.cache_read_tokens || 0)).toLocaleString() }}</span>
+            <span class="font-semibold text-blue-400">{{ ((displayConfig.fields.input_tokens ? (tokenTooltipData?.input_tokens || 0) : 0) + (displayConfig.fields.output_tokens ? (tokenTooltipData?.output_tokens || 0) : 0) + (displayConfig.fields.cache_creation_tokens ? (tokenTooltipData?.cache_creation_tokens || 0) : 0) + (displayConfig.fields.cache_read_tokens ? (tokenTooltipData?.cache_read_tokens || 0) : 0)).toLocaleString() }}</span>
           </div>
         </div>
         <div class="absolute right-full top-1/2 h-0 w-0 -translate-y-1/2 border-b-[6px] border-r-[6px] border-t-[6px] border-b-transparent border-r-gray-900 border-t-transparent dark:border-r-gray-800"></div>
@@ -536,18 +555,11 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { formatDateTime, formatReasoningEffort, reasoningEffortValuesEqual } from '@/utils/format'
-import { formatCacheTokens, formatMultiplier } from '@/utils/formatters'
+import { formatMultiplier } from '@/utils/formatters'
 import { formatTokenPricePerMillion } from '@/utils/usagePricing'
 import { getUsageServiceTierLabel } from '@/utils/usageServiceTier'
 import { resolveUsageRequestType } from '@/utils/usageRequestType'
-import {
-  LATENCY_BAR_CLASSES,
-  LATENCY_BAR_FROM_CLASSES,
-  LATENCY_BAR_TO_CLASSES,
-  LATENCY_TEXT_CLASSES,
-  durationSeverity,
-  firstTokenSeverity,
-} from '@/utils/latencyHealth'
+
 import {
   BILLING_MODE_TOKEN,
   getBillingModeLabel,
@@ -584,7 +596,17 @@ import IpGeoCell from '@/components/common/IpGeoCell.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { fetchBatch, getEntry } from '@/utils/ipGeoLookup'
 import type { AdminUsageLog } from '@/types'
+import type { UsageDisplayConfig } from '@/types/usageDisplay'
 import type { Column } from '@/components/common/types'
+import {
+  createDefaultUsageDisplayConfig,
+  formatUsageDuration,
+  formatUsageSpeed,
+  formatUsageTokens,
+  outputTokensPerSecond,
+  usageLatencySeverity,
+  usageSpeedSeverity,
+} from '@/utils/usageDisplay'
 
 interface Props {
   data: AdminUsageLog[]
@@ -597,6 +619,7 @@ interface Props {
   showUpstreamEndpoint?: boolean
   /** 嵌入统一卡片内使用：去掉自身卡片外观 */
   flat?: boolean
+  displayConfig?: UsageDisplayConfig
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -606,18 +629,20 @@ const props = withDefaults(defineProps<Props>(), {
   defaultSortOrder: 'asc',
   showAccountBilling: true,
   showUpstreamEndpoint: true,
-  flat: false
+  flat: false,
+  displayConfig: () => createDefaultUsageDisplayConfig()
 })
 const emit = defineEmits<{
   userClick: [userID: number, email?: string]
   sort: [key: string, order: 'asc' | 'desc']
   ipGeoBatchFailed: []
 }>()
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const appStore = useAppStore()
 const copiedRequestId = ref<string | null>(null)
 const showAccountBilling = props.showAccountBilling
 const showUpstreamEndpoint = props.showUpstreamEndpoint
+const displayConfig = computed(() => props.displayConfig)
 const ipGeoBatchLoading = ref(false)
 
 const showIpGeoToolbar = computed(() => props.columns.some((col) => col.key === 'ip_address'))
@@ -724,14 +749,53 @@ const formatUserAgent = (ua: string): string => {
   return ua
 }
 
-// 超过 1 分钟简化为 "Xm Ys"，免去人工换算（超过 1 小时再进位为 "Xh Ym"）
-const formatDuration = (ms: number | null | undefined): string => {
-  if (ms == null) return '-'
-  if (ms < 1000) return `${ms}ms`
-  if (ms < 60_000) return `${(ms / 1000).toFixed(2)}s`
-  const totalSec = Math.round(ms / 1000)
-  if (totalSec < 3600) return `${Math.floor(totalSec / 60)}m ${totalSec % 60}s`
-  return `${Math.floor(totalSec / 3600)}h ${Math.floor((totalSec % 3600) / 60)}m`
+const LATENCY_TEXT_CLASSES: Record<string, string> = {
+  good: 'text-emerald-600 dark:text-emerald-400',
+  warn: 'text-amber-600 dark:text-amber-400',
+  slow: 'text-orange-600 dark:text-orange-400',
+  critical: 'text-red-600 dark:text-red-400',
+}
+const LATENCY_BAR_CLASSES: Record<string, string> = {
+  good: 'bg-emerald-500',
+  warn: 'bg-amber-400',
+  slow: 'bg-orange-500',
+  critical: 'bg-red-500',
+}
+const LATENCY_BAR_FROM_CLASSES: Record<string, string> = {
+  good: 'from-emerald-500', warn: 'from-amber-400', slow: 'from-orange-500', critical: 'from-red-500',
+}
+const LATENCY_BAR_TO_CLASSES: Record<string, string> = {
+  good: 'to-emerald-500', warn: 'to-amber-400', slow: 'to-orange-500', critical: 'to-red-500',
+}
+
+const hasCacheCreationTtlBreakdown = (row: AdminUsageLog): boolean =>
+  displayConfig.value.fields.cache_ttl_breakdown
+  && ((row.cache_creation_5m_tokens ?? 0) > 0 || (row.cache_creation_1h_tokens ?? 0) > 0)
+const hasVisibleCacheTokens = (row: AdminUsageLog): boolean =>
+  (displayConfig.value.fields.cache_read_tokens && (row.cache_read_tokens ?? 0) > 0)
+  || (displayConfig.value.fields.cache_creation_tokens && (row.cache_creation_tokens ?? 0) > 0)
+  || (displayConfig.value.fields.cache_ttl_breakdown && ((row.cache_creation_5m_tokens ?? 0) > 0 || (row.cache_creation_1h_tokens ?? 0) > 0))
+
+const severityClass = (severity: string | null): string =>
+  displayConfig.value.color_enabled && severity ? LATENCY_TEXT_CLASSES[severity] ?? '' : ''
+const latencyTextClass = (value: number | null | undefined, thresholds: UsageDisplayConfig['first_token_thresholds']): string =>
+  severityClass(usageLatencySeverity(value, thresholds))
+const latencyBarClass = (row: AdminUsageLog): string => {
+  if (!displayConfig.value.color_enabled) return 'bg-gray-300 dark:bg-dark-600'
+  const first = displayConfig.value.fields.first_token ? usageLatencySeverity(row.first_token_ms, displayConfig.value.first_token_thresholds) : null
+  const duration = displayConfig.value.fields.duration ? usageLatencySeverity(row.duration_ms, displayConfig.value.duration_thresholds) : null
+  if (first && duration) return ['bg-gradient-to-b from-40% to-60%', LATENCY_BAR_FROM_CLASSES[first], LATENCY_BAR_TO_CLASSES[duration]].join(' ')
+  return LATENCY_BAR_CLASSES[first || duration || 'good']
+}
+const speedValue = (row: AdminUsageLog): number | null => outputTokensPerSecond(row, displayConfig.value.speed_formula)
+const formattedSpeed = (row: AdminUsageLog): string => displayConfig.value.fields.speed ? formatUsageSpeed(speedValue(row), displayConfig.value) : '-'
+const speedTextClass = (row: AdminUsageLog): string => {
+  const severity = usageSpeedSeverity(speedValue(row), displayConfig.value.speed_low_threshold)
+  return severityClass(severity)
+}
+const speedHint = (): string => {
+  const key = displayConfig.value.speed_formula === 'after_first_token' ? 'usage.generationSpeedHint' : 'usage.outputSpeedHint'
+  return t(key)
 }
 
 // Cost tooltip functions

@@ -22,6 +22,7 @@ This directory contains files for deploying Sub2API on Linux servers and Apple-s
 | `.env.example` | Container environment variables template |
 | `DOCKER.md` | Docker Hub documentation |
 | `install.sh` | One-click binary installation script |
+| [`../docs/pureai-upgrade.md`](../docs/pureai-upgrade.md) | One-time switch from upstream binary or image releases to PureAI |
 | `install-datamanagementd.sh` | datamanagementd 一键安装脚本 |
 | `sub2api.service` | Systemd service unit file |
 | `sub2api-datamanagementd.service` | datamanagementd systemd service unit file |
@@ -56,16 +57,16 @@ Use the automated preparation script for the easiest setup:
 
 ```bash
 # Download and run the preparation script
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/docker-deploy.sh | bash
+curl -sSL https://raw.githubusercontent.com/xiaoli0412/sub2api-pureai/main/deploy/docker-deploy.sh | bash
 
 # Or download first, then run
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/docker-deploy.sh -o docker-deploy.sh
+curl -sSL https://raw.githubusercontent.com/xiaoli0412/sub2api-pureai/main/deploy/docker-deploy.sh -o docker-deploy.sh
 chmod +x docker-deploy.sh
 ./docker-deploy.sh
 ```
 
 **What the script does:**
-- Downloads `docker-compose.local.yml` and `.env.example`
+- Downloads `docker-compose.local.yml` as `docker-compose.yml` and `.env.example`
 - Automatically generates secure secrets (JWT_SECRET, TOTP_ENCRYPTION_KEY, POSTGRES_PASSWORD)
 - Creates `.env` file with generated secrets
 - Creates necessary data directories (data/, postgres_data/, redis_data/)
@@ -73,14 +74,15 @@ chmod +x docker-deploy.sh
 
 **After running the script:**
 ```bash
-# Start services
-docker compose -f docker-compose.local.yml up -d
+# The script saves docker-compose.local.yml as docker-compose.yml.
+# Start services with the generated filename.
+docker compose up -d
 
 # View logs
-docker compose -f docker-compose.local.yml logs -f sub2api
+docker compose logs -f sub2api
 
 # If admin password was auto-generated, find it in logs:
-docker compose -f docker-compose.local.yml logs sub2api | grep "admin password"
+docker compose logs sub2api | grep "admin password"
 
 # Access Web UI
 # http://localhost:8080
@@ -92,8 +94,8 @@ If you prefer manual control:
 
 ```bash
 # Clone repository
-git clone https://github.com/Wei-Shaw/sub2api.git
-cd sub2api/deploy
+git clone https://github.com/xiaoli0412/sub2api-pureai.git
+cd sub2api-pureai/deploy
 
 # Configure environment
 cp .env.example .env
@@ -123,12 +125,15 @@ docker compose -f docker-compose.local.yml logs -f sub2api
 
 | Version | Data Storage | Migration | Best For |
 |---------|-------------|-----------|----------|
-| **docker-compose.local.yml** | Local directories (./data, ./postgres_data, ./redis_data) | ✅ Easy (tar entire directory) | Production, need frequent backups/migration |
-| **docker-compose.yml** | Named volumes (/var/lib/docker/volumes/) | ⚠️ Requires docker commands | Simple setup, don't need migration |
+| **docker-compose.local.yml** (manual checkout) | Local directories (./data, ./postgres_data, ./redis_data) | Easy tar backup/migration | Source checkout |
+| **docker-compose.yml** (one-click output) | Local directories (copied from docker-compose.local.yml) | Easy tar backup/migration | One-click deployment |
+| **docker-compose.yml** (repository file) | Named volumes (/var/lib/docker/volumes/) | Requires Docker volume commands | Named-volume setup |
 
-**Recommendation:** Use `docker-compose.local.yml` (deployed by `docker-deploy.sh`) for easier data management and migration.
+**Recommendation:** The one-click script writes the local-directory compose file as `docker-compose.yml`; manual source checkouts keep the filename `docker-compose.local.yml`. Use the file that exists in your deployment directory.
 
-### How Auto-Setup Works
+### Upgrade and rollback notes
+
+Use the [PureAI one-time upgrade guide](../docs/pureai-upgrade.md) when moving an existing upstream binary or image deployment to this fork. It explains the required first switch, backup boundaries, persistent data handling, and the current API Key and Redis in-flight reservation defaults.
 
 When using Docker Compose with `AUTO_SETUP=true`:
 
@@ -398,12 +403,12 @@ For production servers using systemd.
 ### One-Line Installation
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/xiaoli0412/sub2api-pureai/main/deploy/install.sh | sudo bash
 ```
 
 ### Manual Installation
 
-1. Download the latest release from [GitHub Releases](https://github.com/Wei-Shaw/sub2api/releases)
+1. Download the latest release from [GitHub Releases](https://github.com/xiaoli0412/sub2api-pureai/releases)
 2. Extract and copy the binary to `/opt/sub2api/`
 3. Copy `sub2api.service` to `/etc/systemd/system/`
 4. Run:

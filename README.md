@@ -235,7 +235,7 @@ One-click installation script that downloads pre-built binaries from GitHub Rele
 #### Installation Steps
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/xiaoli0412/sub2api-pureai/main/deploy/install.sh | sudo bash
 ```
 
 The script will:
@@ -285,7 +285,7 @@ sudo journalctl -u sub2api -f
 sudo systemctl restart sub2api
 
 # Uninstall
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh | sudo bash -s -- uninstall -y
+curl -sSL https://raw.githubusercontent.com/xiaoli0412/sub2api-pureai/main/deploy/install.sh | sudo bash -s -- uninstall -y
 ```
 
 ---
@@ -301,6 +301,8 @@ Deploy with Docker Compose, including PostgreSQL and Redis containers.
 
 #### Quick Start (One-Click Deployment)
 
+For existing upstream installations, read the [PureAI one-time upgrade guide](docs/pureai-upgrade.md) before switching binaries or images.
+
 Use the automated deployment script for easy setup:
 
 ```bash
@@ -308,7 +310,7 @@ Use the automated deployment script for easy setup:
 mkdir -p sub2api-deploy && cd sub2api-deploy
 
 # Download and run deployment preparation script
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/docker-deploy.sh | bash
+curl -sSL https://raw.githubusercontent.com/xiaoli0412/sub2api-pureai/main/deploy/docker-deploy.sh | bash
 
 # Start services
 docker compose up -d
@@ -318,7 +320,7 @@ docker compose logs -f sub2api
 ```
 
 **What the script does:**
-- Downloads `docker-compose.local.yml` (saved as `docker-compose.yml`) and `.env.example`
+- Downloads `docker-compose.local.yml` as `docker-compose.yml` and `.env.example`
 - Generates secure credentials (JWT_SECRET, TOTP_ENCRYPTION_KEY, POSTGRES_PASSWORD)
 - Creates `.env` file with auto-generated secrets
 - Creates data directories (uses local directories for easy backup/migration)
@@ -330,8 +332,8 @@ If you prefer manual setup:
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/Wei-Shaw/sub2api.git
-cd sub2api/deploy
+git clone https://github.com/xiaoli0412/sub2api-pureai.git
+cd sub2api-pureai/deploy
 
 # 2. Copy environment configuration
 cp .env.example .env
@@ -395,10 +397,18 @@ docker compose -f docker-compose.local.yml logs -f sub2api
 
 | Version | Data Storage | Migration | Best For |
 |---------|-------------|-----------|----------|
-| **docker-compose.local.yml** | Local directories | ✅ Easy (tar entire directory) | Production, frequent backups |
-| **docker-compose.yml** | Named volumes | ⚠️ Requires docker commands | Simple setup |
+| **docker-compose.local.yml** (manual checkout) | Local directories | Easy tar backup/migration | Source checkout |
+| **docker-compose.yml** (one-click output) | Local directories | Easy tar backup/migration | One-click deployment |
+| **docker-compose.yml** (repository file) | Named volumes | Requires Docker volume commands | Named-volume setup |
 
-**Recommendation:** Use `docker-compose.local.yml` (deployed by script) for easier data management.
+**Recommendation:** The one-click script saves the local-directory configuration as `docker-compose.yml`. A manual checkout keeps `docker-compose.local.yml`. The operations below use a `COMPOSE_FILE` variable so the filename always matches the deployment.
+
+```bash
+# One-click deployment (docker-deploy.sh output):
+COMPOSE_FILE=docker-compose.yml
+# Manual checkout using local directories: use this instead:
+# COMPOSE_FILE=docker-compose.local.yml
+```
 
 #### Access
 
@@ -406,24 +416,24 @@ Open `http://YOUR_SERVER_IP:8080` in your browser.
 
 If admin password was auto-generated, find it in logs:
 ```bash
-docker compose -f docker-compose.local.yml logs sub2api | grep "admin password"
+docker compose -f "$COMPOSE_FILE" logs sub2api | grep "admin password"
 ```
 
 #### Upgrade
 
 ```bash
 # Pull latest image and recreate container
-docker compose -f docker-compose.local.yml pull
-docker compose -f docker-compose.local.yml up -d
+docker compose -f "$COMPOSE_FILE" pull
+docker compose -f "$COMPOSE_FILE" up -d
 ```
 
 #### Easy Migration (Local Directory Version)
 
-When using `docker-compose.local.yml`, migrate to a new server easily:
+When using the local-directory Compose file, migrate to a new server easily:
 
 ```bash
 # On source server
-docker compose -f docker-compose.local.yml down
+docker compose -f "$COMPOSE_FILE" down
 cd ..
 tar czf sub2api-complete.tar.gz sub2api-deploy/
 
@@ -433,23 +443,24 @@ scp sub2api-complete.tar.gz user@new-server:/path/
 # On new server
 tar xzf sub2api-complete.tar.gz
 cd sub2api-deploy/
-docker compose -f docker-compose.local.yml up -d
+# Set COMPOSE_FILE to the filename present in this deployment directory.
+docker compose -f "$COMPOSE_FILE" up -d
 ```
 
 #### Useful Commands
 
 ```bash
 # Stop all services
-docker compose -f docker-compose.local.yml down
+docker compose -f "$COMPOSE_FILE" down
 
 # Restart
-docker compose -f docker-compose.local.yml restart
+docker compose -f "$COMPOSE_FILE" restart
 
 # View all logs
-docker compose -f docker-compose.local.yml logs -f
+docker compose -f "$COMPOSE_FILE" logs -f
 
 # Remove all data (caution!)
-docker compose -f docker-compose.local.yml down
+docker compose -f "$COMPOSE_FILE" down
 rm -rf data/ postgres_data/ redis_data/
 ```
 
@@ -460,8 +471,8 @@ rm -rf data/ postgres_data/ redis_data/
 Apple-silicon Macs running macOS 26 can run the full Sub2API, PostgreSQL, and Redis stack with Apple `container` 1.1.0 or newer:
 
 ```bash
-git clone https://github.com/Wei-Shaw/sub2api.git
-cd sub2api/deploy
+git clone https://github.com/xiaoli0412/sub2api-pureai.git
+cd sub2api-pureai/deploy
 ./apple-container.sh init
 ./apple-container.sh up
 ./apple-container.sh status
@@ -486,8 +497,8 @@ Build and run from source code for development or customization.
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/Wei-Shaw/sub2api.git
-cd sub2api
+git clone https://github.com/xiaoli0412/sub2api-pureai.git
+cd sub2api-pureai
 
 # 2. Install pnpm (if not already installed)
 npm install -g pnpm

@@ -3,12 +3,12 @@
 # Sub2API Docker Deployment Preparation Script
 # =============================================================================
 # This script prepares deployment files for Sub2API:
-#   - Downloads docker-compose.local.yml and .env.example
+#   - Downloads docker-compose.local.yml as docker-compose.yml and .env.example
 #   - Generates secure secrets (JWT_SECRET, TOTP_ENCRYPTION_KEY, POSTGRES_PASSWORD)
 #   - Creates necessary data directories
 #
 # After running this script, you can start services with:
-#   docker-compose up -d
+#   docker compose up -d
 # =============================================================================
 
 set -e
@@ -21,7 +21,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # GitHub raw content base URL
-GITHUB_RAW_URL="https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy"
+GITHUB_RAW_URL="https://raw.githubusercontent.com/xiaoli0412/sub2api-pureai/main/deploy"
 
 # Print colored message
 print_info() {
@@ -75,8 +75,10 @@ main() {
         fi
     fi
 
-    # Download docker-compose.local.yml and save as docker-compose.yml
-    print_info "Downloading docker-compose.yml..."
+    # Download docker-compose.local.yml and save as docker-compose.yml. This
+    # keeps one-click deployments runnable as `docker compose up -d`; manual
+    # source checkouts continue to use docker-compose.local.yml directly.
+    print_info "Downloading docker-compose.yml (from docker-compose.local.yml)..."
     if command_exists curl; then
         curl -sSL "${GITHUB_RAW_URL}/docker-compose.local.yml" -o docker-compose.yml
     elif command_exists wget; then

@@ -21,6 +21,11 @@ export interface AdminUsageStatsResponse {
   total_actual_cost: number
   total_account_cost: number
   average_duration_ms: number
+  /** Exact aggregate output-token speed from the backend's paired sums. */
+  output_tokens_per_second?: number | null
+  /** Exact aggregate generation speed from first-token onward. */
+  generation_tokens_per_second?: number | null
+  speed_sample_count?: number
   endpoints?: EndpointStat[]
   upstream_endpoints?: EndpointStat[]
   endpoint_paths?: EndpointStat[]

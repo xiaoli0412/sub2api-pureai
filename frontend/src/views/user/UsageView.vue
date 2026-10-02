@@ -1,7 +1,7 @@
 <template>
   <AppLayout>
     <div class="space-y-6">
-      <UsageStatsCards :stats="usageStats" :show-account-cost="false" :strike-standard-cost="true" />
+      <UsageStatsCards :stats="usageStats" :display-config="usageDisplay.config.value" :show-account-cost="false" :strike-standard-cost="true" />
 
       <div class="space-y-4">
         <div class="card p-4">
@@ -158,6 +158,29 @@
                   <span>{{ col.label }}</span>
                   <Icon v-if="isCurrentColumnVisible(col.key)" name="check" size="sm" class="text-primary-500" />
                 </button>
+                <div class="my-1 border-t border-gray-100 dark:border-dark-700"></div>
+                <div class="px-4 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                  {{ t('usage.displayFields') }}
+                </div>
+                <button
+                  v-for="field in usageDisplayFields"
+                  :key="field.key"
+                  type="button"
+                  :data-testid="`usage-display-toggle-${field.key}`"
+                  @click="toggleDisplayField(field.key)"
+                  class="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
+                >
+                  <span>{{ field.label() }}</span>
+                  <Icon v-if="isDisplayFieldVisible(field.key)" name="check" size="sm" class="text-primary-500" />
+                </button>
+                <button
+                  type="button"
+                  data-testid="usage-display-reset"
+                  class="mt-1 w-full border-t border-gray-100 px-4 py-2 text-left text-sm text-gray-500 hover:bg-gray-100 dark:border-dark-700 dark:text-gray-400 dark:hover:bg-dark-700"
+                  @click="usageDisplay.resetPreferences()"
+                >
+                  {{ t('usage.resetDisplayPreferences') }}
+                </button>
               </div>
             </div>
             <button v-if="activeTab !== 'errors'" type="button" @click="exportToCSV" :disabled="exporting" class="btn btn-primary">
@@ -181,6 +204,7 @@
           :data="usageLogs"
           :loading="loading"
           :columns="visibleColumns"
+          :display-config="usageDisplay.config.value"
           :server-side-sort="true"
           :show-account-billing="false"
           :show-upstream-endpoint="false"
@@ -237,6 +261,8 @@ import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
 import Icon from '@/components/icons/Icon.vue'
 import UserErrorRequestsTable from '@/components/user/UserErrorRequestsTable.vue'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
+import { useUsageDisplay } from '@/composables/useUsageDisplay'
+import { outputTokensPerSecond } from '@/utils/usageDisplay'
 import { formatReasoningEffort } from '@/utils/format'
 import { getBillingModeLabel, getDisplayBillingMode as resolveDisplayBillingMode } from '@/utils/billingMode'
 import { resolveUsageRequestType, requestTypeToLegacyStream } from '@/utils/usageRequestType'
@@ -257,6 +283,7 @@ import { COMMON_ERROR_STATUS_CODES } from '@/utils/errorBadges'
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const usageDisplay = useUsageDisplay('user-usage-display-preferences')
 
 type DistributionMetric = 'tokens' | 'actual_cost'
 type EndpointSource = 'inbound' | 'upstream' | 'path'
@@ -670,6 +697,7 @@ const exportToCSV = async () => {
       'Original Cost',
       'First Token (ms)',
       'Duration (ms)',
+      ...(usageDisplay.hasPersonalPreferences.value && usageDisplay.config.value.fields.speed ? [t(usageDisplay.config.value.speed_formula === 'after_first_token' ? 'usage.generationSpeed' : 'usage.outputSpeed')] : []),
     ]
     const rows = allLogs.map((log) => [
       log.created_at,
@@ -689,6 +717,7 @@ const exportToCSV = async () => {
       log.total_cost.toFixed(8),
       log.first_token_ms ?? '',
       log.duration_ms ?? '',
+      ...(usageDisplay.hasPersonalPreferences.value && usageDisplay.config.value.fields.speed ? [outputTokensPerSecond(log, usageDisplay.config.value.speed_formula) ?? ''] : []),
     ].map(escapeCSVValue))
     const csvContent = [
       headers.map(escapeCSVValue).join(','),
@@ -726,15 +755,39 @@ const allColumns = computed<Column[]>(() => [
   { key: 'tokens', label: t('usage.tokens'), sortable: false },
   { key: 'cost', label: t('usage.cost'), sortable: false },
   { key: 'latency', label: t('usage.latency'), sortable: false },
+  { key: 'output_speed', label: t(usageDisplay.config.value.speed_formula === 'after_first_token' ? 'usage.generationSpeed' : 'usage.outputSpeed'), sortable: false },
   { key: 'created_at', label: t('usage.time'), sortable: true },
   { key: 'user_agent', label: t('usage.userAgent'), sortable: false },
 ])
 
 const hiddenColumns = reactive<Set<string>>(new Set())
+const usageDisplayFields = [
+  { key: 'input_tokens', label: () => t('usage.inputTokens') },
+  { key: 'output_tokens', label: () => t('usage.outputTokens') },
+  { key: 'cache_read_tokens', label: () => t('usage.cacheReadTokens') },
+  { key: 'cache_creation_tokens', label: () => t('usage.cacheCreationTokens') },
+  { key: 'cache_ttl_breakdown', label: () => t('usage.cacheTtlBreakdown') },
+  { key: 'first_token', label: () => t('usage.firstToken') },
+  { key: 'duration', label: () => t('usage.duration') },
+  { key: 'speed', label: () => t(usageDisplay.config.value.speed_formula === 'after_first_token' ? 'usage.generationSpeed' : 'usage.outputSpeed') },
+] as const
 const toggleableColumns = computed(() => allColumns.value.filter((col) => !ALWAYS_VISIBLE.includes(col.key)))
-const visibleColumns = computed(() =>
-  allColumns.value.filter((col) => ALWAYS_VISIBLE.includes(col.key) || !hiddenColumns.has(col.key))
-)
+const visibleColumns = computed(() => {
+  const fields = usageDisplay.config.value.fields
+  const tokenVisible = fields.input_tokens || fields.output_tokens || fields.cache_read_tokens || fields.cache_creation_tokens || fields.cache_ttl_breakdown
+  const latencyVisible = fields.first_token || fields.duration
+  return allColumns.value.filter((col) => {
+    if (ALWAYS_VISIBLE.includes(col.key)) return true
+    if (col.key === 'tokens') return tokenVisible && !hiddenColumns.has(col.key)
+    if (col.key === 'latency') return latencyVisible && !hiddenColumns.has(col.key)
+    if (col.key === 'output_speed') return fields.speed && !hiddenColumns.has(col.key)
+    return !hiddenColumns.has(col.key)
+  })
+})
+const isDisplayFieldVisible = (key: string) => usageDisplay.config.value.fields[key as keyof typeof usageDisplay.config.value.fields]
+const toggleDisplayField = (key: string) => {
+  usageDisplay.toggleField(key as keyof typeof usageDisplay.config.value.fields)
+}
 const isColumnVisible = (key: string) => !hiddenColumns.has(key)
 const toggleColumn = (key: string) => {
   if (hiddenColumns.has(key)) hiddenColumns.delete(key)
@@ -745,7 +798,11 @@ const loadSavedColumns = () => {
   try {
     const saved = localStorage.getItem(HIDDEN_COLUMNS_KEY)
     const values = saved ? JSON.parse(saved) as string[] : DEFAULT_HIDDEN_COLUMNS
-    values.forEach((key) => hiddenColumns.add(key))
+    if (saved) {
+      values.forEach((key) => hiddenColumns.add(key))
+    } else {
+      DEFAULT_HIDDEN_COLUMNS.forEach((key) => hiddenColumns.add(key))
+    }
   } catch {
     DEFAULT_HIDDEN_COLUMNS.forEach((key) => hiddenColumns.add(key))
   }
@@ -899,6 +956,7 @@ const switchToErrors = () => {
 }
 
 onMounted(() => {
+  void usageDisplay.load()
   loadSavedColumns()
   loadSavedErrColumns()
   document.addEventListener('click', handleColumnClickOutside)

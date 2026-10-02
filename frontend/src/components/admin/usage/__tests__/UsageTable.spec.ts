@@ -70,7 +70,16 @@ const messages: Record<string, string> = {
 	'usage.sentUpstreamModel': 'Sent upstream',
 	'usage.upstreamResponseModel': 'Upstream response',
 	'usage.modelVariant': 'Possible version variant',
-	'usage.modelMismatch': 'Different model',
+  'usage.modelMismatch': 'Different model',
+  'usage.inputTokens': 'Input tokens',
+  'usage.outputTokens': 'Output tokens',
+  'usage.cacheReadTokens': 'Cache read tokens',
+  'usage.cacheCreationTokens': 'Cache creation tokens',
+  'usage.cacheTtlOverriddenHint': 'Cache TTL Override enabled',
+  'usage.latencyFirstToken': 'First',
+  'usage.latencyDuration': 'Total',
+  'usage.outputSpeedHint': 'Output speed',
+  'usage.speedUnit': 'Token/s',
 }
 
 vi.mock('vue-i18n', async () => {
@@ -93,6 +102,8 @@ const DataTableStub = {
         <slot name="cell-billing_mode" :row="row" />
         <slot name="cell-tokens" :row="row" />
         <slot name="cell-cost" :row="row" />
+        <slot name="cell-latency" :row="row" />
+        <slot name="cell-output_speed" :row="row" />
         <slot name="cell-request_id" :row="row" />
         <slot name="cell-upstream_request_id" :row="row" />
       </div>
@@ -127,6 +138,53 @@ const baseImageRow = {
   image_size_source: null,
   image_size_breakdown: null,
 }
+
+describe('admin UsageTable display integration', () => {
+  it('uses shared speed formatting and nullable values', () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [{
+          ...baseImageRow,
+          request_id: 'req-speed',
+          billing_mode: 'token',
+          image_count: 0,
+          output_tokens: 600,
+          duration_ms: 30000,
+          first_token_ms: null,
+        }],
+        loading: false,
+        columns: [{ key: 'latency', label: 'Latency' }, { key: 'output_speed', label: 'Speed' }],
+      },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+
+    expect(wrapper.text()).toContain('30.00 Token/s')
+    expect(wrapper.text()).toContain('Total')
+    expect(wrapper.text()).toContain('30.00s')
+  })
+
+  it('hides configured token and latency values while retaining the table slots', () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [{ ...baseImageRow, request_id: 'req-hidden', billing_mode: 'token', image_count: 0, input_tokens: 10, output_tokens: 20, first_token_ms: 5, duration_ms: 10 }],
+        loading: false,
+        columns: [{ key: 'tokens', label: 'Tokens' }, { key: 'latency', label: 'Latency' }],
+        displayConfig: {
+          fields: { input_tokens: false, output_tokens: false, cache_read_tokens: false, cache_creation_tokens: false, cache_ttl_breakdown: false, first_token: false, duration: false, speed: false },
+          token_unit: 'raw', token_decimals: 2, duration_unit: 'ms', duration_decimals: 2,
+          speed_formula: 'end_to_end', speed_decimals: 2, color_enabled: true,
+          first_token_thresholds: { warn: 10, slow: 20, critical: 30 }, duration_thresholds: { warn: 10, slow: 20, critical: 30 }, speed_low_threshold: 10,
+        },
+      },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+
+    expect(wrapper.text()).not.toContain('10')
+    expect(wrapper.text()).not.toContain('20')
+    expect(wrapper.text()).not.toContain('First')
+    expect(wrapper.text()).not.toContain('Total')
+  })
+})
 
 describe('admin UsageTable tooltip', () => {
   beforeEach(() => {
